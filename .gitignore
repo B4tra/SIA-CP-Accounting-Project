@@ -1,0 +1,12 @@
+# Office temp files
+~$*
+
+# OS files
+Thumbs.db
+Desktop.ini
+.DS_Store
+
+# IDE / Antigravity
+.gemini/
+*.suo
+*.user
