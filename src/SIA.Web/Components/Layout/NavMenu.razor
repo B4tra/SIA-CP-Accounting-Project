@@ -1,18 +1,109 @@
-<div class="top-row ps-3 navbar navbar-dark">
-    <div class="container-fluid">
-        <a class="navbar-brand" href="">SIA</a>
-    </div>
-</div>
+@using SIA.Application.Common.Constants
 
-<input type="checkbox" title="Menu navigasi" class="navbar-toggler" />
+<MudNavMenu Class="pa-2">
+    <MudNavLink Href="/" Match="NavLinkMatch.All" Icon="@Icons.Material.Filled.Dashboard">
+        Beranda
+    </MudNavLink>
 
-<div class="nav-scrollable" onclick="document.querySelector('.navbar-toggler').click()">
-    <nav class="flex-column">
-        <div class="nav-item px-3">
-            <NavLink class="nav-link" href="" Match="NavLinkMatch.All">
-                <span class="bi bi-house-door-fill-nav-menu" aria-hidden="true"></span> Beranda
-            </NavLink>
-        </div>
-    </nav>
-</div>
+    @* Modul Penjualan (Admin & Staff) *@
+    <AuthorizeView Roles="@($"{Roles.Admin},{Roles.Staff}")">
+        <Authorized>
+            <MudNavGroup Title="Penjualan" Icon="@Icons.Material.Filled.ShoppingCart" Expanded="false">
+                <MudNavLink Href="/sales" Match="NavLinkMatch.All" Icon="@Icons.Material.Filled.ReceiptLong">
+                    Daftar Penjualan
+                </MudNavLink>
+                <MudNavLink Href="/sales/new" Match="NavLinkMatch.All" Icon="@Icons.Material.Filled.AddShoppingCart">
+                    Transaksi Baru
+                </MudNavLink>
+                <MudNavLink Href="/sales/customers" Match="NavLinkMatch.All" Icon="@Icons.Material.Filled.People">
+                    Pelanggan
+                </MudNavLink>
+                <MudNavLink Href="/sales/returns" Match="NavLinkMatch.All" Icon="@Icons.Material.Filled.AssignmentReturn">
+                    Retur Penjualan
+                </MudNavLink>
+            </MudNavGroup>
+        </Authorized>
+    </AuthorizeView>
 
+    @* Modul Pembelian (Admin & Staff) *@
+    <AuthorizeView Roles="@($"{Roles.Admin},{Roles.Staff}")">
+        <Authorized>
+            <MudNavGroup Title="Pembelian" Icon="@Icons.Material.Filled.LocalShipping" Expanded="false">
+                <MudNavLink Href="/purchasing/orders" Match="NavLinkMatch.All" Icon="@Icons.Material.Filled.FormatListBulleted">
+                    Purchase Order (PO)
+                </MudNavLink>
+                <MudNavLink Href="/purchasing/orders/new" Match="NavLinkMatch.All" Icon="@Icons.Material.Filled.AddBusiness">
+                    Buat PO Baru
+                </MudNavLink>
+                <MudNavLink Href="/purchasing/suppliers" Match="NavLinkMatch.All" Icon="@Icons.Material.Filled.Store">
+                    Pemasok (Supplier)
+                </MudNavLink>
+                <MudNavLink Href="/purchasing/returns" Match="NavLinkMatch.All" Icon="@Icons.Material.Filled.KeyboardReturn">
+                    Retur Pembelian
+                </MudNavLink>
+            </MudNavGroup>
+        </Authorized>
+    </AuthorizeView>
+
+    @* Modul Inventori (Admin & Staff) *@
+    <AuthorizeView Roles="@($"{Roles.Admin},{Roles.Staff}")">
+        <Authorized>
+            <MudNavGroup Title="Inventori" Icon="@Icons.Material.Filled.Inventory2" Expanded="false">
+                <MudNavLink Href="/inventory/products" Match="NavLinkMatch.All" Icon="@Icons.Material.Filled.BatteryChargingFull">
+                    Daftar Produk / Aki
+                </MudNavLink>
+                <MudNavLink Href="/inventory/stock-cards" Match="NavLinkMatch.All" Icon="@Icons.Material.Filled.HistoryEdu">
+                    Kartu Stok
+                </MudNavLink>
+            </MudNavGroup>
+        </Authorized>
+    </AuthorizeView>
+
+    @* Modul Akuntansi (Admin & Viewer) *@
+    <AuthorizeView Roles="@($"{Roles.Admin},{Roles.Viewer}")">
+        <Authorized>
+            <MudNavGroup Title="Akuntansi" Icon="@Icons.Material.Filled.AccountBalance" Expanded="false">
+                <MudNavLink Href="/accounting/accounts" Match="NavLinkMatch.All" Icon="@Icons.Material.Filled.AccountTree">
+                    Bagan Akun (COA)
+                </MudNavLink>
+                <MudNavLink Href="/accounting/journals" Match="NavLinkMatch.All" Icon="@Icons.Material.Filled.MenuBook">
+                    Jurnal Umum
+                </MudNavLink>
+            </MudNavGroup>
+        </Authorized>
+    </AuthorizeView>
+
+    @* Modul Laporan Keuangan (Admin & Viewer) *@
+    <AuthorizeView Roles="@($"{Roles.Admin},{Roles.Viewer}")">
+        <Authorized>
+            <MudNavGroup Title="Laporan Keuangan" Icon="@Icons.Material.Filled.BarChart" Expanded="false">
+                <MudNavLink Href="/reports/balance-sheet" Match="NavLinkMatch.All" Icon="@Icons.Material.Filled.Balance">
+                    Neraca Saldo
+                </MudNavLink>
+                <MudNavLink Href="/reports/income-statement" Match="NavLinkMatch.All" Icon="@Icons.Material.Filled.TrendingUp">
+                    Laba Rugi
+                </MudNavLink>
+                <MudNavLink Href="/reports/cash-flow" Match="NavLinkMatch.All" Icon="@Icons.Material.Filled.Payments">
+                    Arus Kas
+                </MudNavLink>
+            </MudNavGroup>
+        </Authorized>
+    </AuthorizeView>
+
+    @* Modul Administrasi (Admin Only) *@
+    <AuthorizeView Roles="@Roles.Admin">
+        <Authorized>
+            <MudNavGroup Title="Administrasi" Icon="@Icons.Material.Filled.AdminPanelSettings" Expanded="false">
+                <MudNavLink Href="/admin/users" Match="NavLinkMatch.All" Icon="@Icons.Material.Filled.ManageAccounts">
+                    Kelola Pengguna
+                </MudNavLink>
+                <MudNavLink Href="/admin/transaction-numbers" Match="NavLinkMatch.All" Icon="@Icons.Material.Filled.Pin">
+                    Format No. Transaksi
+                </MudNavLink>
+                <MudNavLink Href="/admin/audit-logs" Match="NavLinkMatch.All" Icon="@Icons.Material.Filled.SecurityUpdateGood">
+                    Audit Log
+                </MudNavLink>
+            </MudNavGroup>
+        </Authorized>
+    </AuthorizeView>
+</MudNavMenu>

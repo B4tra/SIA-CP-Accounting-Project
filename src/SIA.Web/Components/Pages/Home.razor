@@ -1,7 +1,101 @@
 @page "/"
+@using SIA.Application.Common.Constants
 
-<PageTitle>Beranda - SIA</PageTitle>
+<PageTitle>Beranda - SIA Toko Aki</PageTitle>
 
-<h1>Sistem Informasi Akuntansi</h1>
+<div class="mb-6">
+    <MudText Typo="Typo.h4" Class="font-weight-bold" Style="color: var(--sia-black-primary);">
+        Sistem Informasi Akuntansi
+    </MudText>
+    <MudText Typo="Typo.subtitle1" Style="color: var(--sia-black-text-secondary);">
+        Toko Aki &amp; Baterai Kendaraan
+    </MudText>
+</div>
 
-<p>Toko Aki/Baterai Kendaraan.</p>
+<MudGrid Class="mb-6">
+    <!-- Kartu KPI Penjualan: latar #0B0B0B, angka #86EFAC, label putih -->
+    <MudItem xs="12" sm="6" md="3">
+        <div class="kpi-card-sales">
+            <div class="d-flex justify-space-between align-center mb-2">
+                <span class="kpi-label">Penjualan Hari Ini</span>
+                <MudIcon Icon="@Icons.Material.Filled.MonetizationOn" Style="color: var(--sia-green-accent);" />
+            </div>
+            <div class="kpi-value" style="font-size: 1.75rem;">
+                Rp 0
+            </div>
+            <div class="kpi-label mt-1" style="font-size: 0.75rem; opacity: 0.8;">
+                0 Transaksi
+            </div>
+        </div>
+    </MudItem>
+
+    <MudItem xs="12" sm="6" md="3">
+        <MudPaper Elevation="2" Class="pa-4" Style="background-color: var(--sia-white); border-radius: 8px;">
+            <div class="d-flex justify-space-between align-center mb-2">
+                <MudText Typo="Typo.body2" Style="color: var(--sia-black-text-secondary);">Stok Baterai Siap Jual</MudText>
+                <MudIcon Icon="@Icons.Material.Filled.BatteryFull" Style="color: var(--sia-green-action);" />
+            </div>
+            <MudText Typo="Typo.h5" Class="font-weight-bold" Style="color: var(--sia-black-primary);">
+                0 Unit
+            </MudText>
+            <MudText Typo="Typo.caption" Style="color: var(--sia-status-success);">
+                Stok terpantau
+            </MudText>
+        </MudPaper>
+    </MudItem>
+
+    <MudItem xs="12" sm="6" md="3">
+        <MudPaper Elevation="2" Class="pa-4" Style="background-color: var(--sia-white); border-radius: 8px;">
+            <div class="d-flex justify-space-between align-center mb-2">
+                <MudText Typo="Typo.body2" Style="color: var(--sia-black-text-secondary);">Stok Menipis (&le; 5)</MudText>
+                <MudIcon Icon="@Icons.Material.Filled.WarningAmber" Style="color: var(--sia-status-warning);" />
+            </div>
+            <MudText Typo="Typo.h5" Class="font-weight-bold" Style="color: var(--sia-status-warning);">
+                0 Item
+            </MudText>
+            <MudText Typo="Typo.caption" Style="color: var(--sia-black-text-secondary);">
+                Perlu restock
+            </MudText>
+        </MudPaper>
+    </MudItem>
+
+    <MudItem xs="12" sm="6" md="3">
+        <MudPaper Elevation="2" Class="pa-4" Style="background-color: var(--sia-white); border-radius: 8px;">
+            <div class="d-flex justify-space-between align-center mb-2">
+                <MudText Typo="Typo.body2" Style="color: var(--sia-black-text-secondary);">Piutang Jatuh Tempo</MudText>
+                <MudIcon Icon="@Icons.Material.Filled.ErrorOutline" Style="color: var(--sia-status-error);" />
+            </div>
+            <MudText Typo="Typo.h5" Class="font-weight-bold" Style="color: var(--sia-status-error);">
+                Rp 0
+            </MudText>
+            <MudText Typo="Typo.caption" Style="color: var(--sia-black-text-secondary);">
+                0 Faktur belum lunas
+            </MudText>
+        </MudPaper>
+    </MudItem>
+</MudGrid>
+
+<MudPaper Elevation="2" Class="pa-6" Style="background-color: var(--sia-white); border-radius: 8px;">
+    <MudText Typo="Typo.h6" Class="font-weight-bold mb-2" Style="color: var(--sia-black-primary);">
+        Selamat Datang di SIA Toko Aki
+    </MudText>
+    <MudText Typo="Typo.body1" Class="mb-4" Style="color: var(--sia-black-text-secondary);">
+        Aplikasi ini memfasilitasi pencatatan penjualan, pembelian aki, mutasi kartu stok, pembayaran, hingga pembuatan jurnal umum manual dan laporan keuangan.
+    </MudText>
+
+    <AuthorizeView>
+        <Authorized>
+            <MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Class="mb-4" Style="border-color: var(--sia-black-primary); color: var(--sia-black-primary);">
+                Anda saat ini masuk sebagai <strong>@context.User.Identity?.Name</strong>.
+            </MudAlert>
+        </Authorized>
+        <NotAuthorized>
+            <MudAlert Severity="Severity.Normal" Variant="Variant.Filled" Class="mb-4" Style="background-color: var(--sia-black-primary); color: var(--sia-green-accent);">
+                Anda belum masuk ke sistem. Silakan klik tombol di bawah untuk masuk dengan akun demo.
+            </MudAlert>
+            <MudButton Variant="Variant.Filled" Style="background-color: var(--sia-green-action); color: var(--sia-black-primary);" Href="/login">
+                Masuk ke Akun
+            </MudButton>
+        </NotAuthorized>
+    </AuthorizeView>
+</MudPaper>

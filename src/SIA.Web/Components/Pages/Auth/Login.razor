@@ -1,0 +1,103 @@
+@page "/login"
+@attribute [AllowAnonymous]
+@inject NavigationManager Navigation
+
+<PageTitle>Masuk - SIA Toko Aki</PageTitle>
+
+<MudContainer MaxWidth="MaxWidth.Small" Class="mt-12 mb-8">
+    <MudPaper Elevation="4" Class="pa-8" Style="border-radius: 12px;">
+        <div class="text-center mb-6">
+            <MudIcon Icon="@Icons.Material.Filled.BatteryChargingFull" Size="Size.Large" Style="color: var(--sia-black-primary);" />
+            <MudText Typo="Typo.h5" Class="font-weight-bold mt-2" Style="color: var(--sia-black-primary);">
+                Sistem Informasi Akuntansi
+            </MudText>
+            <MudText Typo="Typo.subtitle2" Style="color: var(--sia-black-text-secondary);">
+                Toko Aki / Baterai Kendaraan
+            </MudText>
+        </div>
+
+        @if (HasError)
+        {
+            <MudAlert Severity="Severity.Error" Variant="Variant.Filled" Class="mb-4" Style="background-color: var(--sia-status-error);">
+                Email atau kata sandi salah. Silakan coba kembali.
+            </MudAlert>
+        }
+
+        <form method="post" action="/api/auth/login">
+            <AntiforgeryToken />
+            <input type="hidden" name="returnUrl" value="@ReturnUrl" />
+
+            <div class="mb-4">
+                <label for="email" class="mud-input-label mb-1 d-block font-weight-bold" style="color: var(--sia-black-primary); font-size: 0.875rem;">
+                    Email
+                </label>
+                <input id="email" name="email" type="email" required autocomplete="username"
+                       class="mud-input-slot mud-input-root mud-input-root-outlined pa-3"
+                       style="width: 100%; border: 1px solid var(--sia-green-hover); border-radius: 6px; box-sizing: border-box; font-size: 1rem;"
+                       placeholder="nama@sia.local" />
+            </div>
+
+            <div class="mb-6">
+                <label for="password" class="mud-input-label mb-1 d-block font-weight-bold" style="color: var(--sia-black-primary); font-size: 0.875rem;">
+                    Kata Sandi
+                </label>
+                <input id="password" name="password" type="password" required autocomplete="current-password"
+                       class="mud-input-slot mud-input-root mud-input-root-outlined pa-3"
+                       style="width: 100%; border: 1px solid var(--sia-green-hover); border-radius: 6px; box-sizing: border-box; font-size: 1rem;"
+                       placeholder="••••••••" />
+            </div>
+
+            <button type="submit"
+                    class="mud-button-root mud-button mud-button-filled mud-button-filled-primary mud-width-full py-3"
+                    style="background-color: var(--sia-black-primary); color: var(--sia-green-accent); font-weight: 600; border-radius: 6px; width: 100%; border: none; cursor: pointer; font-size: 1rem;">
+                Masuk ke Sistem
+            </button>
+        </form>
+
+        <MudDivider Class="my-6" Style="background-color: var(--sia-green-hover);" />
+
+        <MudText Typo="Typo.subtitle2" Class="font-weight-bold mb-3" Style="color: var(--sia-black-primary);">
+            Akun Demo Pengujian:
+        </MudText>
+
+        <MudPaper Outlined="true" Class="pa-3 mb-2" Style="border-color: var(--sia-green-hover); background-color: #FAFAFA;">
+            <div class="d-flex justify-space-between align-center">
+                <div>
+                    <MudText Typo="Typo.body2" Class="font-weight-bold">Admin: admin@sia.local</MudText>
+                    <MudText Typo="Typo.caption" Style="color: var(--sia-black-text-secondary);">Sandi: Admin123! &bull; Akses Penuh</MudText>
+                </div>
+                <MudChip T="string" Size="Size.Small" Style="background-color: var(--sia-black-primary); color: var(--sia-white);">Admin</MudChip>
+            </div>
+        </MudPaper>
+
+        <MudPaper Outlined="true" Class="pa-3 mb-2" Style="border-color: var(--sia-green-hover); background-color: #FAFAFA;">
+            <div class="d-flex justify-space-between align-center">
+                <div>
+                    <MudText Typo="Typo.body2" Class="font-weight-bold">Staff: staff@sia.local</MudText>
+                    <MudText Typo="Typo.caption" Style="color: var(--sia-black-text-secondary);">Sandi: Staff123! &bull; Kasir, PO Draft, Stok</MudText>
+                </div>
+                <MudChip T="string" Size="Size.Small" Style="background-color: var(--sia-green-accent); color: var(--sia-black-primary);">Staff</MudChip>
+            </div>
+        </MudPaper>
+
+        <MudPaper Outlined="true" Class="pa-3" Style="border-color: var(--sia-green-hover); background-color: #FAFAFA;">
+            <div class="d-flex justify-space-between align-center">
+                <div>
+                    <MudText Typo="Typo.body2" Class="font-weight-bold">Viewer: viewer@sia.local</MudText>
+                    <MudText Typo="Typo.caption" Style="color: var(--sia-black-text-secondary);">Sandi: Viewer123! &bull; Jurnal &amp; Laporan</MudText>
+                </div>
+                <MudChip T="string" Size="Size.Small" Style="background-color: var(--sia-green-action); color: var(--sia-black-primary);">Viewer</MudChip>
+            </div>
+        </MudPaper>
+    </MudPaper>
+</MudContainer>
+
+@code {
+    [SupplyParameterFromQuery]
+    public string? ReturnUrl { get; set; }
+
+    [SupplyParameterFromQuery]
+    public string? Error { get; set; }
+
+    private bool HasError => !string.IsNullOrEmpty(Error);
+}

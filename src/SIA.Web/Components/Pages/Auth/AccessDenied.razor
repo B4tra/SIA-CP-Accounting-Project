@@ -1,0 +1,16 @@
+@page "/access-denied"
+
+<PageTitle>Akses Ditolak - SIA</PageTitle>
+
+<MudContainer MaxWidth="MaxWidth.Small" Class="mt-8">
+    <MudPaper Elevation="3" Class="pa-8 text-center" Style="border-radius: 8px;">
+        <MudIcon Icon="@Icons.Material.Filled.GppBad" Size="Size.Large" Color="Color.Error" Class="mb-4" />
+        <MudText Typo="Typo.h5" Class="font-weight-bold mb-2">Akses Ditolak</MudText>
+        <MudText Typo="Typo.body1" Class="mb-6" Style="color: var(--sia-black-text-secondary);">
+            Anda tidak memiliki hak akses untuk membuka halaman ini. Silakan hubungi Administrator jika Anda memerlukan akses.
+        </MudText>
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" Href="/" StartIcon="@Icons.Material.Filled.Home">
+            Kembali ke Beranda
+        </MudButton>
+    </MudPaper>
+</MudContainer>

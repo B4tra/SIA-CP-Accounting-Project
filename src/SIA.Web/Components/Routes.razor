@@ -1,6 +1,34 @@
-﻿<Router AppAssembly="typeof(Program).Assembly">
-    <Found Context="routeData">
-        <RouteView RouteData="routeData" DefaultLayout="typeof(Layout.MainLayout)" />
-        <FocusOnNavigate RouteData="routeData" Selector="h1" />
-    </Found>
-</Router>
+<CascadingAuthenticationState>
+    <Router AppAssembly="typeof(Program).Assembly">
+        <Found Context="routeData">
+            <AuthorizeRouteView RouteData="routeData" DefaultLayout="typeof(Layout.MainLayout)">
+                <NotAuthorized>
+                    @if (context.User.Identity?.IsAuthenticated == true)
+                    {
+                        <SIA.Web.Components.Pages.Auth.AccessDenied />
+                    }
+                    else
+                    {
+                        <SIA.Web.Components.Pages.Auth.RedirectToLogin />
+                    }
+                </NotAuthorized>
+                <Authorizing>
+                    <div class="d-flex justify-center align-center pa-8">
+                        <MudProgressCircular Color="Color.Primary" Indeterminate="true" />
+                        <MudText Class="ml-4">Memeriksa hak akses...</MudText>
+                    </div>
+                </Authorizing>
+            </AuthorizeRouteView>
+            <FocusOnNavigate RouteData="routeData" Selector="h1" />
+        </Found>
+        <NotFound>
+            <LayoutView Layout="typeof(Layout.MainLayout)">
+                <MudContainer Class="pa-8 text-center">
+                    <MudText Typo="Typo.h5" Class="mb-2">Halaman Tidak Ditemukan</MudText>
+                    <MudText Typo="Typo.body1" Class="mb-4">Halaman yang Anda tuju tidak tersedia.</MudText>
+                    <MudButton Variant="Variant.Filled" Color="Color.Primary" Href="/">Kembali ke Beranda</MudButton>
+                </MudContainer>
+            </LayoutView>
+        </NotFound>
+    </Router>
+</CascadingAuthenticationState>
