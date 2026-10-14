@@ -1,7 +1,20 @@
 @page "/"
+@attribute [Authorize]
 
-<PageTitle>Beranda - SIA</PageTitle>
+<PageTitle>Dashboard - SIA</PageTitle>
 
-<h1>Sistem Informasi Akuntansi</h1>
+<AuthorizeView>
+    <Authorized>
+        <h1 class="sia-page-title">Energi bisnis Anda, hari ini.</h1>
+        <MudText Typo="Typo.body2" Class="mud-text-secondary">
+            Selamat datang, @UserDisplay.DisplayName(context.User). Anda masuk sebagai @UserDisplay.RoleLabel(context.User).
+        </MudText>
 
-<p>Toko Aki/Baterai Kendaraan.</p>
+        <MudPaper Outlined="true" Class="sia-card pa-6 mt-6">
+            <MudText Typo="Typo.h6">Sistem Informasi Akuntansi</MudText>
+            <MudText Typo="Typo.body2" Class="mud-text-secondary">
+                Toko Aki/Baterai Kendaraan. Ringkasan dashboard akan tersedia pada tahap berikutnya.
+            </MudText>
+        </MudPaper>
+    </Authorized>
+</AuthorizeView>

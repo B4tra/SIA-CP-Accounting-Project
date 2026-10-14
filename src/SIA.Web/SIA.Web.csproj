@@ -13,6 +13,7 @@
     <TargetFramework>net8.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
+    <UserSecretsId>sia-web-5c1d7f2e-accounting</UserSecretsId>
   </PropertyGroup>
 
 </Project>

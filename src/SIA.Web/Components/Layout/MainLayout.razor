@@ -1,23 +1,58 @@
-﻿@inherits LayoutComponentBase
+@inherits LayoutComponentBase
 
-<div class="page">
-    <div class="sidebar">
+<MudThemeProvider Theme="SiaTheme.Theme" IsDarkMode="false" />
+<MudPopoverProvider />
+<MudDialogProvider />
+<MudSnackbarProvider />
+
+<MudLayout>
+    <MudAppBar Elevation="0" Class="sia-appbar">
+        <MudIconButton Icon="@Icons.Material.Filled.Menu" Color="Color.Inherit" Edge="Edge.Start"
+                       OnClick="ToggleDrawer" aria-label="Buka atau tutup menu" />
+        <a href="" class="sia-brand" aria-label="SIA - ke Dashboard">
+            <MudIcon Icon="@Icons.Material.Outlined.Bolt" Class="sia-brand-icon" />
+            <span>SIA</span>
+        </a>
+        <MudSpacer />
+        <AuthorizeView>
+            <Authorized>
+                <div class="sia-user">
+                    <MudAvatar Size="Size.Medium" Color="Color.Tertiary">@UserDisplay.Initials(context.User)</MudAvatar>
+                    <div class="sia-user-text d-none d-sm-flex">
+                        <span class="sia-user-name">@UserDisplay.DisplayName(context.User)</span>
+                        <span class="sia-user-role">@UserDisplay.RoleLabel(context.User)</span>
+                    </div>
+                    <form action="logout" method="post" class="ml-2">
+                        <AntiforgeryToken />
+                        <input type="hidden" name="returnUrl" value="/login" />
+                        <MudButton ButtonType="ButtonType.Submit" Variant="Variant.Text" Color="Color.Inherit"
+                                   StartIcon="@Icons.Material.Filled.Logout">Keluar</MudButton>
+                    </form>
+                </div>
+            </Authorized>
+        </AuthorizeView>
+    </MudAppBar>
+
+    <MudDrawer @bind-Open="_drawerOpen" ClipMode="DrawerClipMode.Always" Variant="@DrawerVariant.Responsive"
+               Elevation="0" Class="sia-drawer">
         <NavMenu />
-    </div>
+    </MudDrawer>
 
-    <main>
-        <div class="top-row px-4">
-            <a href="https://learn.microsoft.com/aspnet/core/" target="_blank">About</a>
-        </div>
-
-        <article class="content px-4">
+    <MudMainContent>
+        <MudContainer MaxWidth="MaxWidth.ExtraLarge" Class="py-6">
             @Body
-        </article>
-    </main>
-</div>
+        </MudContainer>
+    </MudMainContent>
+</MudLayout>
 
 <div id="blazor-error-ui">
-    An unhandled error has occurred.
-    <a href="" class="reload">Reload</a>
+    Terjadi kesalahan yang tidak terduga.
+    <a href="" class="reload">Muat ulang</a>
     <a class="dismiss">🗙</a>
 </div>
+
+@code {
+    private bool _drawerOpen = true;
+
+    private void ToggleDrawer() => _drawerOpen = !_drawerOpen;
+}

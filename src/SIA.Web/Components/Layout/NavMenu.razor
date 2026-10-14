@@ -1,18 +1,47 @@
-<div class="top-row ps-3 navbar navbar-dark">
-    <div class="container-fluid">
-        <a class="navbar-brand" href="">SIA</a>
-    </div>
-</div>
+@* Menu navigasi; setiap grup difilter berdasarkan policy (otorisasi halaman tetap ditegakkan di server). *@
+<div class="sia-nav-section">Ruang kerja</div>
 
-<input type="checkbox" title="Menu navigasi" class="navbar-toggler" />
+<MudNavMenu Class="sia-nav">
+    <MudNavLink Href="" Match="NavLinkMatch.All" Icon="@Icons.Material.Outlined.Dashboard">Dashboard</MudNavLink>
 
-<div class="nav-scrollable" onclick="document.querySelector('.navbar-toggler').click()">
-    <nav class="flex-column">
-        <div class="nav-item px-3">
-            <NavLink class="nav-link" href="" Match="NavLinkMatch.All">
-                <span class="bi bi-house-door-fill-nav-menu" aria-hidden="true"></span> Beranda
-            </NavLink>
-        </div>
-    </nav>
-</div>
+    <AuthorizeView Policy="@Policies.ViewAllData">
+        <MudNavGroup Title="Penjualan" Icon="@Icons.Material.Outlined.PointOfSale">
+            <MudNavLink Href="sales" Match="NavLinkMatch.Prefix">Daftar Penjualan</MudNavLink>
+            <MudNavLink Href="sale-returns" Match="NavLinkMatch.Prefix">Retur Penjualan</MudNavLink>
+            <MudNavLink Href="customers" Match="NavLinkMatch.Prefix">Pelanggan</MudNavLink>
+        </MudNavGroup>
+        <MudNavGroup Title="Pembelian" Icon="@Icons.Material.Outlined.ShoppingCart">
+            <MudNavLink Href="purchase-orders" Match="NavLinkMatch.Prefix">Purchase Order</MudNavLink>
+            <MudNavLink Href="purchase-returns" Match="NavLinkMatch.Prefix">Retur Pembelian</MudNavLink>
+            <MudNavLink Href="suppliers" Match="NavLinkMatch.Prefix">Pemasok</MudNavLink>
+        </MudNavGroup>
+        <MudNavGroup Title="Inventori" Icon="@Icons.Material.Outlined.BatteryChargingFull">
+            <MudNavLink Href="products" Match="NavLinkMatch.Prefix">Produk</MudNavLink>
+            <MudNavLink Href="stock-cards" Match="NavLinkMatch.Prefix">Kartu Stok</MudNavLink>
+        </MudNavGroup>
+        <MudNavLink Href="payments" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Outlined.Payments">Pembayaran</MudNavLink>
+    </AuthorizeView>
 
+    <AuthorizeView Policy="@Policies.InputJournal">
+        <MudNavGroup Title="Akuntansi" Icon="@Icons.Material.Outlined.AccountBalance">
+            <MudNavLink Href="accounts" Match="NavLinkMatch.Prefix">Daftar Akun</MudNavLink>
+            <MudNavLink Href="journal-entries" Match="NavLinkMatch.Prefix">Jurnal Umum</MudNavLink>
+        </MudNavGroup>
+    </AuthorizeView>
+
+    <AuthorizeView Policy="@Policies.ViewReports">
+        <MudNavGroup Title="Laporan Keuangan" Icon="@Icons.Material.Outlined.QueryStats">
+            <MudNavLink Href="reports/balance-sheet" Match="NavLinkMatch.Prefix">Neraca</MudNavLink>
+            <MudNavLink Href="reports/income-statement" Match="NavLinkMatch.Prefix">Laba Rugi</MudNavLink>
+            <MudNavLink Href="reports/cash-flow" Match="NavLinkMatch.Prefix">Arus Kas</MudNavLink>
+        </MudNavGroup>
+    </AuthorizeView>
+
+    <AuthorizeView Policy="@Policies.RequireAdmin">
+        <MudNavGroup Title="Pengaturan" Icon="@Icons.Material.Outlined.Settings">
+            <MudNavLink Href="admin/users" Match="NavLinkMatch.Prefix">Manajemen Pengguna</MudNavLink>
+            <MudNavLink Href="admin/transaction-numbers" Match="NavLinkMatch.Prefix">Nomor Transaksi</MudNavLink>
+            <MudNavLink Href="admin/audit-logs" Match="NavLinkMatch.Prefix">Audit Log</MudNavLink>
+        </MudNavGroup>
+    </AuthorizeView>
+</MudNavMenu>

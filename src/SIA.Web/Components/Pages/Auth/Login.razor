@@ -1,0 +1,112 @@
+@page "/login"
+@layout EmptyLayout
+@using System.ComponentModel.DataAnnotations
+@using Microsoft.AspNetCore.Identity
+@using SIA.Infrastructure.Identity
+@inject SignInManager<ApplicationUser> SignInManager
+@inject UserManager<ApplicationUser> UserManager
+@inject NavigationManager Navigation
+@inject ILogger<Login> Logger
+
+<PageTitle>Masuk - SIA</PageTitle>
+
+<div class="sia-auth-card">
+    <div class="sia-auth-brand">
+        <MudIcon Icon="@Icons.Material.Outlined.Bolt" Class="sia-auth-brand-icon" />
+        <span>SIA</span>
+    </div>
+    <h1 class="sia-auth-title">Masuk ke akun Anda</h1>
+    <p class="sia-auth-subtitle">Sistem Informasi Akuntansi — Toko Aki &amp; Baterai Kendaraan</p>
+
+    @if (!string.IsNullOrEmpty(_errorMessage))
+    {
+        <MudAlert Severity="Severity.Error" Variant="Variant.Outlined" Dense="true" Class="mb-4">@_errorMessage</MudAlert>
+    }
+
+    <EditForm Model="Input" method="post" OnValidSubmit="LoginAsync" FormName="login" class="sia-auth-form">
+        <DataAnnotationsValidator />
+
+        <div class="sia-field">
+            <label for="email">Email</label>
+            <InputText id="email" @bind-Value="Input.Email" class="sia-input" autocomplete="username"
+                       placeholder="nama@sia.local" />
+            <ValidationMessage For="() => Input.Email" />
+        </div>
+
+        <div class="sia-field">
+            <label for="password">Kata sandi</label>
+            <InputText id="password" type="password" @bind-Value="Input.Password" class="sia-input"
+                       autocomplete="current-password" />
+            <ValidationMessage For="() => Input.Password" />
+        </div>
+
+        <label class="sia-checkbox">
+            <InputCheckbox @bind-Value="Input.RememberMe" />
+            <span>Ingat saya</span>
+        </label>
+
+        <button type="submit" class="sia-btn-primary">Masuk</button>
+    </EditForm>
+</div>
+
+@code {
+    private const string InvalidCredentialMessage = "Email atau kata sandi salah.";
+
+    private string? _errorMessage;
+
+    [SupplyParameterFromForm]
+    private LoginInput Input { get; set; } = new();
+
+    [SupplyParameterFromQuery]
+    private string? ReturnUrl { get; set; }
+
+    private async Task LoginAsync()
+    {
+        var user = await UserManager.FindByEmailAsync(Input.Email);
+        if (user is null || !user.IsActive)
+        {
+            _errorMessage = InvalidCredentialMessage;
+            return;
+        }
+
+        var result = await SignInManager.PasswordSignInAsync(user, Input.Password, Input.RememberMe, lockoutOnFailure: true);
+        if (result.Succeeded)
+        {
+            Logger.LogInformation("Pengguna {Email} berhasil masuk.", Input.Email);
+            Navigation.NavigateTo(SafeReturnUrl(ReturnUrl), forceLoad: true);
+            return;
+        }
+
+        _errorMessage = result.IsLockedOut
+            ? "Akun terkunci sementara karena terlalu banyak percobaan gagal. Coba lagi dalam 15 menit."
+            : InvalidCredentialMessage;
+    }
+
+    /// <summary>Hanya izinkan URL lokal untuk mencegah open redirect.</summary>
+    private static string SafeReturnUrl(string? returnUrl)
+    {
+        if (string.IsNullOrWhiteSpace(returnUrl)
+            || !returnUrl.StartsWith('/')
+            || returnUrl.StartsWith("//")
+            || returnUrl.StartsWith("/\\")
+            || returnUrl.StartsWith("/login", StringComparison.OrdinalIgnoreCase))
+        {
+            return "/";
+        }
+
+        return returnUrl;
+    }
+
+    private sealed class LoginInput
+    {
+        [Required(ErrorMessage = "Email wajib diisi.")]
+        [EmailAddress(ErrorMessage = "Format email tidak valid.")]
+        public string Email { get; set; } = string.Empty;
+
+        [Required(ErrorMessage = "Kata sandi wajib diisi.")]
+        [DataType(DataType.Password)]
+        public string Password { get; set; } = string.Empty;
+
+        public bool RememberMe { get; set; }
+    }
+}
