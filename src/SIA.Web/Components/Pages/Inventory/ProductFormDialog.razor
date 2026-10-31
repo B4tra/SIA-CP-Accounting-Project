@@ -1,0 +1,106 @@
+@using SIA.Application.DTOs.Inventory
+@using SIA.Application.Services.Inventory
+@inject IProductService ProductService
+
+<EditForm Model="Model" OnValidSubmit="SubmitAsync">
+    <DataAnnotationsValidator />
+    <MudDialog>
+        <DialogContent>
+            @if (_errors.Count > 0)
+            {
+                <MudAlert Severity="Severity.Error" Variant="Variant.Outlined" Dense="true" Class="mb-4">
+                    @foreach (var error in _errors)
+                    {
+                        <div>@error</div>
+                    }
+                </MudAlert>
+            }
+            <MudGrid Spacing="2">
+                <MudItem xs="12" sm="8">
+                    <MudTextField @bind-Value="Model.Name" For="@(() => Model.Name)" Label="Nama produk" Variant="Variant.Outlined" Required="true" />
+                </MudItem>
+                <MudItem xs="12" sm="4">
+                    <MudTextField @bind-Value="Model.SKU" For="@(() => Model.SKU)" Label="SKU (opsional)" Variant="Variant.Outlined" />
+                </MudItem>
+                <MudItem xs="12" sm="4">
+                    <MudTextField @bind-Value="Model.Category" For="@(() => Model.Category)" Label="Kategori" Placeholder="mis. Aki Motor" Variant="Variant.Outlined" />
+                </MudItem>
+                <MudItem xs="12" sm="4">
+                    <MudTextField @bind-Value="Model.Brand" For="@(() => Model.Brand)" Label="Merek" Variant="Variant.Outlined" />
+                </MudItem>
+                <MudItem xs="12" sm="4">
+                    <MudSelect T="BatteryType?" @bind-Value="Model.BatteryType" Label="Jenis aki" Variant="Variant.Outlined" Clearable="true">
+                        @foreach (var type in Enum.GetValues<BatteryType>())
+                        {
+                            <MudSelectItem T="BatteryType?" Value="@type">@Display.Label(type)</MudSelectItem>
+                        }
+                    </MudSelect>
+                </MudItem>
+                <MudItem xs="12" sm="4">
+                    <MudTextField @bind-Value="Model.Voltage" For="@(() => Model.Voltage)" Label="Tegangan" Placeholder="mis. 12V" Variant="Variant.Outlined" />
+                </MudItem>
+                <MudItem xs="12" sm="4">
+                    <MudTextField @bind-Value="Model.Capacity" For="@(() => Model.Capacity)" Label="Kapasitas" Placeholder="mis. 45Ah" Variant="Variant.Outlined" />
+                </MudItem>
+                <MudItem xs="12" sm="4">
+                    <MudNumericField @bind-Value="Model.ReorderPoint" For="@(() => Model.ReorderPoint)" Label="Batas minimum stok" Min="0" Variant="Variant.Outlined" />
+                </MudItem>
+                <MudItem xs="12" sm="6">
+                    <MudNumericField @bind-Value="Model.PurchasePrice" For="@(() => Model.PurchasePrice)" Label="Harga beli" Min="0m"
+                                     Format="N0" Culture="Display.Culture" Adornment="Adornment.Start" AdornmentText="Rp"
+                                     HideSpinButtons="true" Variant="Variant.Outlined" />
+                </MudItem>
+                <MudItem xs="12" sm="6">
+                    <MudNumericField @bind-Value="Model.SellingPrice" For="@(() => Model.SellingPrice)" Label="Harga jual" Min="0m"
+                                     Format="N0" Culture="Display.Culture" Adornment="Adornment.Start" AdornmentText="Rp"
+                                     HideSpinButtons="true" Variant="Variant.Outlined" />
+                </MudItem>
+                <MudItem xs="12">
+                    <MudTextField @bind-Value="Model.Description" For="@(() => Model.Description)" Label="Deskripsi" Lines="2" Variant="Variant.Outlined" />
+                </MudItem>
+                @if (Model is not UpdateProductDto)
+                {
+                    <MudItem xs="12">
+                        <MudText Typo="Typo.caption" Class="mud-text-secondary">
+                            Stok awal 0. Stok bertambah saat PO diterima dan berkurang saat penjualan.
+                        </MudText>
+                    </MudItem>
+                }
+            </MudGrid>
+        </DialogContent>
+        <DialogActions>
+            <MudButton OnClick="Cancel" Disabled="_saving">Batal</MudButton>
+            <MudButton ButtonType="ButtonType.Submit" Variant="Variant.Filled" Color="Color.Primary" Disabled="_saving">
+                @(_saving ? "Menyimpan..." : "Simpan")
+            </MudButton>
+        </DialogActions>
+    </MudDialog>
+</EditForm>
+
+@code {
+    [CascadingParameter] private IMudDialogInstance MudDialog { get; set; } = default!;
+
+    /// <summary>Instance <see cref="UpdateProductDto"/> berarti mode ubah; selain itu mode tambah.</summary>
+    [Parameter] public CreateProductDto Model { get; set; } = new();
+
+    private List<string> _errors = new();
+    private bool _saving;
+
+    private async Task SubmitAsync()
+    {
+        _saving = true;
+        _errors.Clear();
+
+        var result = Model is UpdateProductDto update
+            ? await ProductService.UpdateAsync(update)
+            : await ProductService.CreateAsync(Model);
+
+        _saving = false;
+        if (result.IsSuccess)
+            MudDialog.Close(DialogResult.Ok(result.Value));
+        else
+            _errors = result.Errors.ToList();
+    }
+
+    private void Cancel() => MudDialog.Cancel();
+}

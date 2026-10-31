@@ -245,3 +245,10 @@ h1:focus {
 .blazor-error-boundary::after {
     content: "Terjadi kesalahan.";
 }
+
+/* ===== Tabel data master: header hitam, teks putih ===== */
+.sia-table .mud-table-head .mud-table-cell {
+    background-color: var(--mud-palette-black);
+    color: var(--mud-palette-white);
+    font-weight: 600;
+}

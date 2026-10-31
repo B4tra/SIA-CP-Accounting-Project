@@ -8,6 +8,7 @@ using MudBlazor.Services;
 using SIA.Application.Common.Constants;
 using SIA.Application.Common.Interfaces;
 using SIA.Infrastructure;
+using SIA.Infrastructure.Data.Seed;
 using SIA.Infrastructure.Identity;
 using SIA.Web.Components;
 using SIA.Web.Security;
@@ -66,6 +67,9 @@ var app = builder.Build();
 // Seeding Identity: role selalu dipastikan ada; akun uji hanya di Development.
 await SeedIdentityAsync(app);
 
+// Seeding data master (Chart of Accounts & konfigurasi nomor transaksi) wajib di semua environment.
+await SeedMasterDataAsync(app);
+
 // Configure the HTTP request pipeline.
 if (!app.Environment.IsDevelopment())
 {
@@ -123,5 +127,20 @@ static async Task SeedIdentityAsync(WebApplication app)
     catch (Exception ex)
     {
         logger.LogError(ex, "Seeding Identity gagal. Pastikan database sudah dimigrasi dan dapat diakses.");
+    }
+}
+
+static async Task SeedMasterDataAsync(WebApplication app)
+{
+    using var scope = app.Services.CreateScope();
+    var logger = scope.ServiceProvider.GetRequiredService<ILoggerFactory>().CreateLogger("MasterDataSeeder");
+
+    try
+    {
+        await MasterDataSeeder.SeedAsync(scope.ServiceProvider, logger);
+    }
+    catch (Exception ex)
+    {
+        logger.LogError(ex, "Seeding data master gagal. Pastikan database sudah dimigrasi dan dapat diakses.");
     }
 }

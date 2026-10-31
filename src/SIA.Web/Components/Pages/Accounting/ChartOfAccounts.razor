@@ -1,0 +1,207 @@
+﻿@page "/accounts"
+@attribute [Authorize(Policy = Policies.InputJournal)]
+@using SIA.Application.DTOs.Accounting
+@using SIA.Application.Services.Accounting
+@inject IAccountService AccountService
+@inject IDialogService DialogService
+@inject ISnackbar Snackbar
+@inject IAuthorizationService AuthorizationService
+@inject AuthenticationStateProvider AuthStateProvider
+
+<PageTitle>Daftar Akun - SIA</PageTitle>
+
+<h1 class="sia-page-title">Daftar Akun (Chart of Accounts)</h1>
+<MudText Typo="Typo.body2" Class="mud-text-secondary">
+    Saldo akun hanya berubah lewat posting jurnal umum atau rekalkulasi saldo.
+</MudText>
+
+<MudPaper Outlined="true" Class="sia-card pa-4 mt-6">
+    <div class="d-flex flex-wrap align-center gap-4 mb-4">
+        <MudTextField T="string" @bind-Value="_search" Placeholder="Cari kode atau nama akun..."
+                      Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Search"
+                      Immediate="true" Variant="Variant.Outlined" Margin="Margin.Dense" Clearable="true" Class="flex-grow-1" />
+        <MudSwitch T="bool" Value="_includeInactive" ValueChanged="ToggleInactiveAsync" Color="Color.Secondary"
+                   Label="Tampilkan akun nonaktif" />
+        @if (_isAdmin)
+        {
+            <MudButton Variant="Variant.Outlined" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Calculate"
+                       OnClick="RecalculateAsync" Disabled="_recalculating">Rekalkulasi Saldo</MudButton>
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Add"
+                       OnClick="CreateAsync">Tambah Akun</MudButton>
+        }
+    </div>
+
+    <MudTable Items="_accounts" Filter="Matches" Loading="_loading" Hover="true" Dense="true" Breakpoint="Breakpoint.Sm"
+              Class="sia-table" Elevation="0">
+        <HeaderContent>
+            <MudTh>Kode</MudTh>
+            <MudTh>Nama Akun</MudTh>
+            <MudTh>Kategori</MudTh>
+            <MudTh>Saldo Normal</MudTh>
+            <MudTh>Akun Induk</MudTh>
+            <MudTh Style="text-align:right">Saldo</MudTh>
+            <MudTh>Status</MudTh>
+            @if (_isAdmin)
+            {
+                <MudTh Style="text-align:right">Aksi</MudTh>
+            }
+        </HeaderContent>
+        <RowTemplate>
+            <MudTd DataLabel="Kode">@context.Code</MudTd>
+            <MudTd DataLabel="Nama Akun">
+                <div>@context.Name</div>
+                @if (!string.IsNullOrEmpty(context.Description))
+                {
+                    <MudText Typo="Typo.caption" Class="mud-text-secondary">@context.Description</MudText>
+                }
+            </MudTd>
+            <MudTd DataLabel="Kategori">@Display.Label(context.Category)</MudTd>
+            <MudTd DataLabel="Saldo Normal">@Display.Label(context.NormalBalance)</MudTd>
+            <MudTd DataLabel="Akun Induk">@(context.ParentAccountName ?? "-")</MudTd>
+            <MudTd DataLabel="Saldo" Style="text-align:right">@Display.Rupiah(context.Balance)</MudTd>
+            <MudTd DataLabel="Status">
+                @if (context.IsActive)
+                {
+                    <MudChip T="string" Size="Size.Small" Color="Color.Success" Variant="Variant.Outlined">Aktif</MudChip>
+                }
+                else
+                {
+                    <MudChip T="string" Size="Size.Small" Color="Color.Default" Variant="Variant.Outlined">Nonaktif</MudChip>
+                }
+            </MudTd>
+            @if (_isAdmin)
+            {
+                <MudTd DataLabel="Aksi" Style="text-align:right; white-space:nowrap">
+                    <MudTooltip Text="Ubah">
+                        <MudIconButton Icon="@Icons.Material.Outlined.Edit" Size="Size.Small" OnClick="() => EditAsync(context)" aria-label="Ubah akun" />
+                    </MudTooltip>
+                    <MudTooltip Text="Hapus">
+                        <MudIconButton Icon="@Icons.Material.Outlined.Delete" Size="Size.Small" Color="Color.Error" OnClick="() => DeleteAsync(context)" aria-label="Hapus akun" />
+                    </MudTooltip>
+                </MudTd>
+            }
+        </RowTemplate>
+        <NoRecordsContent>
+            <MudText Typo="Typo.body2">Belum ada data akun.</MudText>
+        </NoRecordsContent>
+        <LoadingContent>
+            <MudText Typo="Typo.body2">Memuat data...</MudText>
+        </LoadingContent>
+    </MudTable>
+</MudPaper>
+
+@code {
+    private IReadOnlyList<AccountDto> _accounts = Array.Empty<AccountDto>();
+    private string? _search;
+    private bool _includeInactive;
+    private bool _loading = true;
+    private bool _recalculating;
+    private bool _isAdmin;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var state = await AuthStateProvider.GetAuthenticationStateAsync();
+        _isAdmin = (await AuthorizationService.AuthorizeAsync(state.User, Policies.RequireAdmin)).Succeeded;
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        _loading = true;
+        var result = await AccountService.GetAllAsync(_includeInactive);
+        if (result.IsSuccess)
+            _accounts = result.Value!;
+        else
+            Snackbar.Add(result.Error!, Severity.Error);
+        _loading = false;
+    }
+
+    private bool Matches(AccountDto a) =>
+        string.IsNullOrWhiteSpace(_search)
+        || a.Code.Contains(_search, StringComparison.OrdinalIgnoreCase)
+        || a.Name.Contains(_search, StringComparison.OrdinalIgnoreCase);
+
+    private async Task ToggleInactiveAsync(bool value)
+    {
+        _includeInactive = value;
+        await LoadAsync();
+    }
+
+    private Task CreateAsync() => OpenFormAsync("Tambah Akun", new CreateAccountDto(), null);
+
+    private Task EditAsync(AccountDto a) => OpenFormAsync("Ubah Akun", new UpdateAccountDto
+    {
+        Id = a.Id,
+        Code = a.Code,
+        Name = a.Name,
+        Category = a.Category,
+        NormalBalance = a.NormalBalance,
+        Description = a.Description,
+        ParentAccountId = a.ParentAccountId,
+        IsActive = a.IsActive,
+    }, a.Id);
+
+    private async Task OpenFormAsync(string title, CreateAccountDto model, int? editingId)
+    {
+        // Daftar calon akun induk: semua akun (termasuk nonaktif) kecuali akun yang sedang diubah
+        var all = await AccountService.GetAllAsync(includeInactive: true);
+        var parents = (all.Value ?? Array.Empty<AccountDto>()).Where(a => a.Id != editingId).ToList();
+
+        var parameters = new DialogParameters<AccountFormDialog>
+        {
+            { x => x.Model, model },
+            { x => x.ParentOptions, parents },
+        };
+        var options = new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true, CloseOnEscapeKey = true };
+        var dialog = await DialogService.ShowAsync<AccountFormDialog>(title, parameters, options);
+        var result = await dialog.Result;
+        if (result is { Canceled: false })
+        {
+            Snackbar.Add("Akun berhasil disimpan.", Severity.Success);
+            await LoadAsync();
+        }
+    }
+
+    private async Task DeleteAsync(AccountDto a)
+    {
+        var confirmed = await DialogService.ShowMessageBox(
+            "Hapus Akun",
+            $"Hapus akun {a.Code} - {a.Name}? Akun yang sudah dipakai di jurnal atau memiliki sub-akun tidak dapat dihapus.",
+            yesText: "Hapus", cancelText: "Batal");
+        if (confirmed != true) return;
+
+        var result = await AccountService.DeleteAsync(a.Id);
+        if (result.IsSuccess)
+        {
+            Snackbar.Add("Akun berhasil dihapus.", Severity.Success);
+            await LoadAsync();
+        }
+        else
+        {
+            Snackbar.Add(result.Error!, Severity.Error);
+        }
+    }
+
+    private async Task RecalculateAsync()
+    {
+        var confirmed = await DialogService.ShowMessageBox(
+            "Rekalkulasi Saldo",
+            "Hitung ulang saldo seluruh akun dari baris jurnal yang tercatat?",
+            yesText: "Rekalkulasi", cancelText: "Batal");
+        if (confirmed != true) return;
+
+        _recalculating = true;
+        var result = await AccountService.RecalculateBalancesAsync();
+        _recalculating = false;
+
+        if (result.IsSuccess)
+        {
+            Snackbar.Add("Saldo akun berhasil dihitung ulang.", Severity.Success);
+            await LoadAsync();
+        }
+        else
+        {
+            Snackbar.Add(result.Error!, Severity.Error);
+        }
+    }
+}

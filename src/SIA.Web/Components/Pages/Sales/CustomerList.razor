@@ -1,0 +1,137 @@
+﻿@page "/customers"
+@attribute [Authorize(Policy = Policies.ViewAllData)]
+@using SIA.Application.DTOs.Sales
+@using SIA.Application.Services.Sales
+@inject ICustomerService CustomerService
+@inject IDialogService DialogService
+@inject ISnackbar Snackbar
+@inject IAuthorizationService AuthorizationService
+@inject AuthenticationStateProvider AuthStateProvider
+
+<PageTitle>Pelanggan - SIA</PageTitle>
+
+<h1 class="sia-page-title">Pelanggan</h1>
+<MudText Typo="Typo.body2" Class="mud-text-secondary">Data master pelanggan toko.</MudText>
+
+<MudPaper Outlined="true" Class="sia-card pa-4 mt-6">
+    <div class="d-flex flex-wrap align-center gap-4 mb-4">
+        <MudTextField T="string" @bind-Value="_search" Placeholder="Cari nama atau telepon..."
+                      Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Search"
+                      Immediate="true" DebounceInterval="300" OnDebounceIntervalElapsed="SearchAsync"
+                      Variant="Variant.Outlined" Margin="Margin.Dense" Clearable="true" Class="flex-grow-1" />
+        @if (_canManage)
+        {
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Add"
+                       OnClick="CreateAsync">Tambah Pelanggan</MudButton>
+        }
+    </div>
+
+    <MudTable Items="_customers" Loading="_loading" Hover="true" Dense="true" Breakpoint="Breakpoint.Sm"
+              Class="sia-table" Elevation="0">
+        <HeaderContent>
+            <MudTh>Nama</MudTh>
+            <MudTh>Telepon</MudTh>
+            <MudTh>Alamat</MudTh>
+            @if (_canManage)
+            {
+                <MudTh Style="text-align:right">Aksi</MudTh>
+            }
+        </HeaderContent>
+        <RowTemplate>
+            <MudTd DataLabel="Nama">@context.Name</MudTd>
+            <MudTd DataLabel="Telepon">@(context.Phone ?? "-")</MudTd>
+            <MudTd DataLabel="Alamat">@(context.Address ?? "-")</MudTd>
+            @if (_canManage)
+            {
+                <MudTd DataLabel="Aksi" Style="text-align:right; white-space:nowrap">
+                    <MudTooltip Text="Ubah">
+                        <MudIconButton Icon="@Icons.Material.Outlined.Edit" Size="Size.Small" OnClick="() => EditAsync(context)" aria-label="Ubah pelanggan" />
+                    </MudTooltip>
+                    <MudTooltip Text="Hapus">
+                        <MudIconButton Icon="@Icons.Material.Outlined.Delete" Size="Size.Small" Color="Color.Error" OnClick="() => DeleteAsync(context)" aria-label="Hapus pelanggan" />
+                    </MudTooltip>
+                </MudTd>
+            }
+        </RowTemplate>
+        <NoRecordsContent>
+            <MudText Typo="Typo.body2">Belum ada data pelanggan.</MudText>
+        </NoRecordsContent>
+        <LoadingContent>
+            <MudText Typo="Typo.body2">Memuat data...</MudText>
+        </LoadingContent>
+    </MudTable>
+</MudPaper>
+
+@code {
+    private IReadOnlyList<CustomerDto> _customers = Array.Empty<CustomerDto>();
+    private string? _search;
+    private bool _loading = true;
+    private bool _canManage;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var state = await AuthStateProvider.GetAuthenticationStateAsync();
+        _canManage = (await AuthorizationService.AuthorizeAsync(state.User, Policies.ManageTransactions)).Succeeded;
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        _loading = true;
+        var result = await CustomerService.GetAllAsync(_search);
+        if (result.IsSuccess)
+            _customers = result.Value!;
+        else
+            Snackbar.Add(result.Error!, Severity.Error);
+        _loading = false;
+    }
+
+    private async Task SearchAsync(string value)
+    {
+        _search = value;
+        await LoadAsync();
+    }
+
+    private Task CreateAsync() => OpenFormAsync("Tambah Pelanggan", new CreateCustomerDto());
+
+    private Task EditAsync(CustomerDto c) => OpenFormAsync("Ubah Pelanggan", new UpdateCustomerDto
+    {
+        Id = c.Id,
+        Name = c.Name,
+        Phone = c.Phone,
+        Address = c.Address,
+    });
+
+    private async Task OpenFormAsync(string title, CreateCustomerDto model)
+    {
+        var parameters = new DialogParameters<CustomerFormDialog> { { x => x.Model, model } };
+        var options = new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true, CloseOnEscapeKey = true };
+        var dialog = await DialogService.ShowAsync<CustomerFormDialog>(title, parameters, options);
+        var result = await dialog.Result;
+        if (result is { Canceled: false })
+        {
+            Snackbar.Add("Pelanggan berhasil disimpan.", Severity.Success);
+            await LoadAsync();
+        }
+    }
+
+    private async Task DeleteAsync(CustomerDto c)
+    {
+        var confirmed = await DialogService.ShowMessageBox(
+            "Hapus Pelanggan",
+            $"Hapus pelanggan \"{c.Name}\"? Data yang dihapus tidak tampil lagi di daftar.",
+            yesText: "Hapus", cancelText: "Batal");
+        if (confirmed != true) return;
+
+        var result = await CustomerService.DeleteAsync(c.Id);
+        if (result.IsSuccess)
+        {
+            Snackbar.Add("Pelanggan berhasil dihapus.", Severity.Success);
+            await LoadAsync();
+        }
+        else
+        {
+            Snackbar.Add(result.Error!, Severity.Error);
+        }
+    }
+}

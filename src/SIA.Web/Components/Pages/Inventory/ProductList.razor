@@ -1,0 +1,179 @@
+﻿@page "/products"
+@attribute [Authorize(Policy = Policies.ViewAllData)]
+@using SIA.Application.DTOs.Inventory
+@using SIA.Application.Services.Inventory
+@inject IProductService ProductService
+@inject IDialogService DialogService
+@inject ISnackbar Snackbar
+@inject IAuthorizationService AuthorizationService
+@inject AuthenticationStateProvider AuthStateProvider
+
+<PageTitle>Produk - SIA</PageTitle>
+
+<h1 class="sia-page-title">Produk</h1>
+<MudText Typo="Typo.body2" Class="mud-text-secondary">
+    Data master produk aki/baterai. Stok hanya berubah lewat transaksi penjualan, pembelian, dan retur.
+</MudText>
+
+<MudPaper Outlined="true" Class="sia-card pa-4 mt-6">
+    <div class="d-flex flex-wrap align-center gap-4 mb-4">
+        <MudTextField T="string" @bind-Value="_search" Placeholder="Cari nama, SKU, atau merek..."
+                      Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Search"
+                      Immediate="true" DebounceInterval="300" OnDebounceIntervalElapsed="SearchAsync"
+                      Variant="Variant.Outlined" Margin="Margin.Dense" Clearable="true" Class="flex-grow-1" />
+        @if (_canManage)
+        {
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Add"
+                       OnClick="CreateAsync">Tambah Produk</MudButton>
+        }
+    </div>
+
+    <MudTable Items="_products" Loading="_loading" Hover="true" Dense="true" Breakpoint="Breakpoint.Sm"
+              Class="sia-table" Elevation="0">
+        <HeaderContent>
+            <MudTh>SKU</MudTh>
+            <MudTh>Nama</MudTh>
+            <MudTh>Merek</MudTh>
+            <MudTh>Jenis</MudTh>
+            <MudTh>Spesifikasi</MudTh>
+            <MudTh Style="text-align:right">Harga Beli</MudTh>
+            <MudTh Style="text-align:right">Harga Jual</MudTh>
+            <MudTh Style="text-align:right">Stok</MudTh>
+            @if (_canManage)
+            {
+                <MudTh Style="text-align:right">Aksi</MudTh>
+            }
+        </HeaderContent>
+        <RowTemplate>
+            <MudTd DataLabel="SKU">@(context.SKU ?? "-")</MudTd>
+            <MudTd DataLabel="Nama">
+                <div>@context.Name</div>
+                @if (!string.IsNullOrEmpty(context.Category))
+                {
+                    <MudText Typo="Typo.caption" Class="mud-text-secondary">@context.Category</MudText>
+                }
+            </MudTd>
+            <MudTd DataLabel="Merek">@(context.Brand ?? "-")</MudTd>
+            <MudTd DataLabel="Jenis">@Display.Label(context.BatteryType)</MudTd>
+            <MudTd DataLabel="Spesifikasi">@Spec(context)</MudTd>
+            <MudTd DataLabel="Harga Beli" Style="text-align:right">@Display.Rupiah(context.PurchasePrice)</MudTd>
+            <MudTd DataLabel="Harga Jual" Style="text-align:right">@Display.Rupiah(context.SellingPrice)</MudTd>
+            <MudTd DataLabel="Stok" Style="text-align:right">
+                @if (context.Stock <= context.ReorderPoint)
+                {
+                    <MudChip T="string" Size="Size.Small" Color="Color.Warning" Variant="Variant.Filled">@context.Stock</MudChip>
+                }
+                else
+                {
+                    @context.Stock
+                }
+            </MudTd>
+            @if (_canManage)
+            {
+                <MudTd DataLabel="Aksi" Style="text-align:right; white-space:nowrap">
+                    <MudTooltip Text="Ubah">
+                        <MudIconButton Icon="@Icons.Material.Outlined.Edit" Size="Size.Small" OnClick="() => EditAsync(context)" aria-label="Ubah produk" />
+                    </MudTooltip>
+                    <MudTooltip Text="Hapus">
+                        <MudIconButton Icon="@Icons.Material.Outlined.Delete" Size="Size.Small" Color="Color.Error" OnClick="() => DeleteAsync(context)" aria-label="Hapus produk" />
+                    </MudTooltip>
+                </MudTd>
+            }
+        </RowTemplate>
+        <NoRecordsContent>
+            <MudText Typo="Typo.body2">Belum ada data produk.</MudText>
+        </NoRecordsContent>
+        <LoadingContent>
+            <MudText Typo="Typo.body2">Memuat data...</MudText>
+        </LoadingContent>
+    </MudTable>
+</MudPaper>
+
+@code {
+    private IReadOnlyList<ProductDto> _products = Array.Empty<ProductDto>();
+    private string? _search;
+    private bool _loading = true;
+    private bool _canManage;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var state = await AuthStateProvider.GetAuthenticationStateAsync();
+        _canManage = (await AuthorizationService.AuthorizeAsync(state.User, Policies.ManageTransactions)).Succeeded;
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        _loading = true;
+        var result = await ProductService.GetAllAsync(_search);
+        if (result.IsSuccess)
+            _products = result.Value!;
+        else
+            Snackbar.Add(result.Error!, Severity.Error);
+        _loading = false;
+    }
+
+    private async Task SearchAsync(string value)
+    {
+        _search = value;
+        await LoadAsync();
+    }
+
+    private static string Spec(ProductDto p)
+    {
+        var parts = new[] { p.Voltage, p.Capacity }.Where(s => !string.IsNullOrWhiteSpace(s));
+        var text = string.Join(" / ", parts);
+        return text.Length == 0 ? "-" : text;
+    }
+
+    private Task CreateAsync() => OpenFormAsync("Tambah Produk", new CreateProductDto());
+
+    private Task EditAsync(ProductDto p) => OpenFormAsync("Ubah Produk", new UpdateProductDto
+    {
+        Id = p.Id,
+        Name = p.Name,
+        Description = p.Description,
+        Category = p.Category,
+        Brand = p.Brand,
+        BatteryType = p.BatteryType,
+        Voltage = p.Voltage,
+        Capacity = p.Capacity,
+        SellingPrice = p.SellingPrice,
+        PurchasePrice = p.PurchasePrice,
+        ReorderPoint = p.ReorderPoint,
+        SKU = p.SKU,
+    });
+
+    private async Task OpenFormAsync(string title, CreateProductDto model)
+    {
+        var parameters = new DialogParameters<ProductFormDialog> { { x => x.Model, model } };
+        var options = new DialogOptions { MaxWidth = MaxWidth.Medium, FullWidth = true, CloseOnEscapeKey = true };
+        var dialog = await DialogService.ShowAsync<ProductFormDialog>(title, parameters, options);
+        var result = await dialog.Result;
+        if (result is { Canceled: false })
+        {
+            Snackbar.Add("Produk berhasil disimpan.", Severity.Success);
+            await LoadAsync();
+        }
+    }
+
+    private async Task DeleteAsync(ProductDto p)
+    {
+        var confirmed = await DialogService.ShowMessageBox(
+            "Hapus Produk",
+            $"Hapus produk \"{p.Name}\"? Data yang dihapus tidak tampil lagi di daftar.",
+            yesText: "Hapus", cancelText: "Batal");
+        if (confirmed != true) return;
+
+        var result = await ProductService.DeleteAsync(p.Id);
+        if (result.IsSuccess)
+        {
+            Snackbar.Add("Produk berhasil dihapus.", Severity.Success);
+            await LoadAsync();
+        }
+        else
+        {
+            Snackbar.Add(result.Error!, Severity.Error);
+        }
+    }
+}

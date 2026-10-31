@@ -1,0 +1,137 @@
+﻿@page "/suppliers"
+@attribute [Authorize(Policy = Policies.ViewAllData)]
+@using SIA.Application.DTOs.Purchasing
+@using SIA.Application.Services.Purchasing
+@inject ISupplierService SupplierService
+@inject IDialogService DialogService
+@inject ISnackbar Snackbar
+@inject IAuthorizationService AuthorizationService
+@inject AuthenticationStateProvider AuthStateProvider
+
+<PageTitle>Pemasok - SIA</PageTitle>
+
+<h1 class="sia-page-title">Pemasok</h1>
+<MudText Typo="Typo.body2" Class="mud-text-secondary">Data master pemasok aki/baterai.</MudText>
+
+<MudPaper Outlined="true" Class="sia-card pa-4 mt-6">
+    <div class="d-flex flex-wrap align-center gap-4 mb-4">
+        <MudTextField T="string" @bind-Value="_search" Placeholder="Cari nama atau telepon..."
+                      Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Search"
+                      Immediate="true" DebounceInterval="300" OnDebounceIntervalElapsed="SearchAsync"
+                      Variant="Variant.Outlined" Margin="Margin.Dense" Clearable="true" Class="flex-grow-1" />
+        @if (_canManage)
+        {
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Add"
+                       OnClick="CreateAsync">Tambah Pemasok</MudButton>
+        }
+    </div>
+
+    <MudTable Items="_suppliers" Loading="_loading" Hover="true" Dense="true" Breakpoint="Breakpoint.Sm"
+              Class="sia-table" Elevation="0">
+        <HeaderContent>
+            <MudTh>Nama</MudTh>
+            <MudTh>Telepon</MudTh>
+            <MudTh>Alamat</MudTh>
+            @if (_canManage)
+            {
+                <MudTh Style="text-align:right">Aksi</MudTh>
+            }
+        </HeaderContent>
+        <RowTemplate>
+            <MudTd DataLabel="Nama">@context.Name</MudTd>
+            <MudTd DataLabel="Telepon">@(context.Phone ?? "-")</MudTd>
+            <MudTd DataLabel="Alamat">@(context.Address ?? "-")</MudTd>
+            @if (_canManage)
+            {
+                <MudTd DataLabel="Aksi" Style="text-align:right; white-space:nowrap">
+                    <MudTooltip Text="Ubah">
+                        <MudIconButton Icon="@Icons.Material.Outlined.Edit" Size="Size.Small" OnClick="() => EditAsync(context)" aria-label="Ubah pemasok" />
+                    </MudTooltip>
+                    <MudTooltip Text="Hapus">
+                        <MudIconButton Icon="@Icons.Material.Outlined.Delete" Size="Size.Small" Color="Color.Error" OnClick="() => DeleteAsync(context)" aria-label="Hapus pemasok" />
+                    </MudTooltip>
+                </MudTd>
+            }
+        </RowTemplate>
+        <NoRecordsContent>
+            <MudText Typo="Typo.body2">Belum ada data pemasok.</MudText>
+        </NoRecordsContent>
+        <LoadingContent>
+            <MudText Typo="Typo.body2">Memuat data...</MudText>
+        </LoadingContent>
+    </MudTable>
+</MudPaper>
+
+@code {
+    private IReadOnlyList<SupplierDto> _suppliers = Array.Empty<SupplierDto>();
+    private string? _search;
+    private bool _loading = true;
+    private bool _canManage;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var state = await AuthStateProvider.GetAuthenticationStateAsync();
+        _canManage = (await AuthorizationService.AuthorizeAsync(state.User, Policies.ManageTransactions)).Succeeded;
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        _loading = true;
+        var result = await SupplierService.GetAllAsync(_search);
+        if (result.IsSuccess)
+            _suppliers = result.Value!;
+        else
+            Snackbar.Add(result.Error!, Severity.Error);
+        _loading = false;
+    }
+
+    private async Task SearchAsync(string value)
+    {
+        _search = value;
+        await LoadAsync();
+    }
+
+    private Task CreateAsync() => OpenFormAsync("Tambah Pemasok", new CreateSupplierDto());
+
+    private Task EditAsync(SupplierDto c) => OpenFormAsync("Ubah Pemasok", new UpdateSupplierDto
+    {
+        Id = c.Id,
+        Name = c.Name,
+        Phone = c.Phone,
+        Address = c.Address,
+    });
+
+    private async Task OpenFormAsync(string title, CreateSupplierDto model)
+    {
+        var parameters = new DialogParameters<SupplierFormDialog> { { x => x.Model, model } };
+        var options = new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true, CloseOnEscapeKey = true };
+        var dialog = await DialogService.ShowAsync<SupplierFormDialog>(title, parameters, options);
+        var result = await dialog.Result;
+        if (result is { Canceled: false })
+        {
+            Snackbar.Add("Pemasok berhasil disimpan.", Severity.Success);
+            await LoadAsync();
+        }
+    }
+
+    private async Task DeleteAsync(SupplierDto c)
+    {
+        var confirmed = await DialogService.ShowMessageBox(
+            "Hapus Pemasok",
+            $"Hapus pemasok \"{c.Name}\"? Data yang dihapus tidak tampil lagi di daftar.",
+            yesText: "Hapus", cancelText: "Batal");
+        if (confirmed != true) return;
+
+        var result = await SupplierService.DeleteAsync(c.Id);
+        if (result.IsSuccess)
+        {
+            Snackbar.Add("Pemasok berhasil dihapus.", Severity.Success);
+            await LoadAsync();
+        }
+        else
+        {
+            Snackbar.Add(result.Error!, Severity.Error);
+        }
+    }
+}

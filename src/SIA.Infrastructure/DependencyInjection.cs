@@ -3,10 +3,16 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using SIA.Application.Common.Interfaces;
+using SIA.Application.Services.Accounting;
+using SIA.Application.Services.Inventory;
+using SIA.Application.Services.Purchasing;
+using SIA.Application.Services.Sales;
+using SIA.Application.Services.System;
 using SIA.Infrastructure.Data;
 using SIA.Infrastructure.Data.Interceptors;
 using SIA.Infrastructure.Identity;
 using SIA.Infrastructure.Repositories;
+using SIA.Infrastructure.Services;
 
 namespace SIA.Infrastructure;
 
@@ -40,6 +46,13 @@ public static class DependencyInjection
 
         services.AddScoped(typeof(IRepository<>), typeof(Repository<>));
         services.AddScoped<IUnitOfWork, UnitOfWork>();
+
+        // Service aplikasi (Tahap 2: data master & nomor transaksi)
+        services.AddScoped<ITransactionNumberService, TransactionNumberService>();
+        services.AddScoped<IAccountService, AccountService>();
+        services.AddScoped<IProductService, ProductService>();
+        services.AddScoped<ICustomerService, CustomerService>();
+        services.AddScoped<ISupplierService, SupplierService>();
 
         // Identity: user, role, store EF Core. SignInManager & cookie didaftarkan di layer Web.
         services.AddIdentityCore<ApplicationUser>(options =>

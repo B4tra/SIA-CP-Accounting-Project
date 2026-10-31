@@ -1,0 +1,59 @@
+﻿@using SIA.Application.DTOs.Purchasing
+@using SIA.Application.Services.Purchasing
+@inject ISupplierService SupplierService
+
+<EditForm Model="Model" OnValidSubmit="SubmitAsync">
+    <DataAnnotationsValidator />
+    <MudDialog>
+        <DialogContent>
+            @if (_errors.Count > 0)
+            {
+                <MudAlert Severity="Severity.Error" Variant="Variant.Outlined" Dense="true" Class="mb-4">
+                    @foreach (var error in _errors)
+                    {
+                        <div>@error</div>
+                    }
+                </MudAlert>
+            }
+            <MudStack Spacing="3">
+                <MudTextField @bind-Value="Model.Name" For="@(() => Model.Name)" Label="Nama pemasok" Variant="Variant.Outlined" Required="true" />
+                <MudTextField @bind-Value="Model.Phone" For="@(() => Model.Phone)" Label="Telepon" Variant="Variant.Outlined" />
+                <MudTextField @bind-Value="Model.Address" For="@(() => Model.Address)" Label="Alamat" Lines="2" Variant="Variant.Outlined" />
+            </MudStack>
+        </DialogContent>
+        <DialogActions>
+            <MudButton OnClick="Cancel" Disabled="_saving">Batal</MudButton>
+            <MudButton ButtonType="ButtonType.Submit" Variant="Variant.Filled" Color="Color.Primary" Disabled="_saving">
+                @(_saving ? "Menyimpan..." : "Simpan")
+            </MudButton>
+        </DialogActions>
+    </MudDialog>
+</EditForm>
+
+@code {
+    [CascadingParameter] private IMudDialogInstance MudDialog { get; set; } = default!;
+
+    /// <summary>Instance <see cref="UpdateSupplierDto"/> berarti mode ubah; selain itu mode tambah.</summary>
+    [Parameter] public CreateSupplierDto Model { get; set; } = new();
+
+    private List<string> _errors = new();
+    private bool _saving;
+
+    private async Task SubmitAsync()
+    {
+        _saving = true;
+        _errors.Clear();
+
+        var result = Model is UpdateSupplierDto update
+            ? await SupplierService.UpdateAsync(update)
+            : await SupplierService.CreateAsync(Model);
+
+        _saving = false;
+        if (result.IsSuccess)
+            MudDialog.Close(DialogResult.Ok(result.Value));
+        else
+            _errors = result.Errors.ToList();
+    }
+
+    private void Cancel() => MudDialog.Cancel();
+}
