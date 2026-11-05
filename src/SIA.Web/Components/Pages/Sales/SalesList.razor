@@ -1,0 +1,169 @@
+@page "/sales"
+@attribute [Authorize(Policy = Policies.ViewAllData)]
+@using SIA.Application.DTOs.Sales
+@using SIA.Application.Services.Sales
+@inject ISaleService SaleService
+@inject IDialogService DialogService
+@inject ISnackbar Snackbar
+@inject NavigationManager Navigation
+@inject IAuthorizationService AuthorizationService
+@inject AuthenticationStateProvider AuthStateProvider
+
+<PageTitle>Daftar Penjualan - SIA</PageTitle>
+
+<h1 class="sia-page-title">Daftar Penjualan</h1>
+<MudText Typo="Typo.body2" Class="mud-text-secondary">Transaksi penjualan, status pembayaran, dan piutang pelanggan.</MudText>
+
+<MudPaper Outlined="true" Class="sia-card pa-4 mt-6">
+    <div class="d-flex flex-wrap align-center gap-4 mb-4">
+        <MudTextField T="string" @bind-Value="_filter.Search" Placeholder="Cari no. invoice atau pelanggan..."
+                      Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Search"
+                      Immediate="true" DebounceInterval="300" OnDebounceIntervalElapsed="SearchAsync"
+                      Variant="Variant.Outlined" Margin="Margin.Dense" Clearable="true" Class="flex-grow-1" />
+        <MudDatePicker Label="Dari tanggal" Date="_filter.DateFrom" DateChanged="DateFromChangedAsync"
+                       DateFormat="dd/MM/yyyy" Variant="Variant.Outlined" Margin="Margin.Dense" Clearable="true" Style="max-width:170px" />
+        <MudDatePicker Label="Sampai tanggal" Date="_filter.DateTo" DateChanged="DateToChangedAsync"
+                       DateFormat="dd/MM/yyyy" Variant="Variant.Outlined" Margin="Margin.Dense" Clearable="true" Style="max-width:170px" />
+        <MudSelect T="PaymentStatus?" Label="Status" Value="_filter.PaymentStatus" ValueChanged="StatusChangedAsync"
+                   Variant="Variant.Outlined" Margin="Margin.Dense" Clearable="true" Style="max-width:190px">
+            @foreach (var status in Enum.GetValues<PaymentStatus>())
+            {
+                <MudSelectItem T="PaymentStatus?" Value="@status">@Display.Label(status)</MudSelectItem>
+            }
+        </MudSelect>
+        @if (_canManage)
+        {
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Add"
+                       Href="sales/new">Penjualan Baru</MudButton>
+        }
+    </div>
+
+    <MudTable Items="_sales" Loading="_loading" Hover="true" Dense="true" Breakpoint="Breakpoint.Sm"
+              Class="sia-table" Elevation="0">
+        <HeaderContent>
+            <MudTh>No. Invoice</MudTh>
+            <MudTh>Tanggal</MudTh>
+            <MudTh>Pelanggan</MudTh>
+            <MudTh Style="text-align:right">Total</MudTh>
+            <MudTh Style="text-align:right">Dibayar</MudTh>
+            <MudTh Style="text-align:right">Sisa</MudTh>
+            <MudTh>Jatuh Tempo</MudTh>
+            <MudTh>Status</MudTh>
+            <MudTh Style="text-align:right">Aksi</MudTh>
+        </HeaderContent>
+        <RowTemplate>
+            <MudTd DataLabel="No. Invoice">@context.InvoiceNumber</MudTd>
+            <MudTd DataLabel="Tanggal">@Display.Date(context.SaleDate)</MudTd>
+            <MudTd DataLabel="Pelanggan">@context.CustomerName</MudTd>
+            <MudTd DataLabel="Total" Style="text-align:right">@Display.Rupiah(context.TotalAmount)</MudTd>
+            <MudTd DataLabel="Dibayar" Style="text-align:right">@Display.Rupiah(context.PaidAmount)</MudTd>
+            <MudTd DataLabel="Sisa" Style="text-align:right">@Display.Rupiah(context.RemainingAmount)</MudTd>
+            <MudTd DataLabel="Jatuh Tempo">
+                @if (IsOverdue(context))
+                {
+                    <MudText Typo="Typo.body2" Color="Color.Error">@Display.Date(context.DueDate)</MudText>
+                }
+                else
+                {
+                    @Display.Date(context.DueDate)
+                }
+            </MudTd>
+            <MudTd DataLabel="Status">
+                <MudChip T="string" Size="Size.Small" Color="@StatusColor(context.PaymentStatus)" Variant="Variant.Filled">
+                    @Display.Label(context.PaymentStatus)
+                </MudChip>
+            </MudTd>
+            <MudTd DataLabel="Aksi" Style="text-align:right; white-space:nowrap">
+                <MudTooltip Text="Lihat / cetak nota">
+                    <MudIconButton Icon="@Icons.Material.Outlined.Print" Size="Size.Small"
+                                   Href="@($"sales/{context.Id}/print")" aria-label="Lihat atau cetak nota" />
+                </MudTooltip>
+                @if (_canManage && context.RemainingAmount > 0)
+                {
+                    <MudTooltip Text="Catat pembayaran">
+                        <MudIconButton Icon="@Icons.Material.Outlined.Payments" Size="Size.Small" Color="Color.Secondary"
+                                       OnClick="() => RecordPaymentAsync(context)" aria-label="Catat pembayaran" />
+                    </MudTooltip>
+                }
+            </MudTd>
+        </RowTemplate>
+        <NoRecordsContent>
+            <MudText Typo="Typo.body2">Belum ada data penjualan.</MudText>
+        </NoRecordsContent>
+        <LoadingContent>
+            <MudText Typo="Typo.body2">Memuat data...</MudText>
+        </LoadingContent>
+    </MudTable>
+</MudPaper>
+
+@code {
+    private IReadOnlyList<SaleDto> _sales = Array.Empty<SaleDto>();
+    private readonly SaleFilterDto _filter = new();
+    private bool _loading = true;
+    private bool _canManage;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var state = await AuthStateProvider.GetAuthenticationStateAsync();
+        _canManage = (await AuthorizationService.AuthorizeAsync(state.User, Policies.ManageTransactions)).Succeeded;
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        _loading = true;
+        var result = await SaleService.GetAllAsync(_filter);
+        if (result.IsSuccess)
+            _sales = result.Value!;
+        else
+            Snackbar.Add(result.Error!, Severity.Error);
+        _loading = false;
+    }
+
+    private async Task SearchAsync(string value)
+    {
+        _filter.Search = value;
+        await LoadAsync();
+    }
+
+    private async Task DateFromChangedAsync(DateTime? value)
+    {
+        _filter.DateFrom = value;
+        await LoadAsync();
+    }
+
+    private async Task DateToChangedAsync(DateTime? value)
+    {
+        _filter.DateTo = value;
+        await LoadAsync();
+    }
+
+    private async Task StatusChangedAsync(PaymentStatus? value)
+    {
+        _filter.PaymentStatus = value;
+        await LoadAsync();
+    }
+
+    private async Task RecordPaymentAsync(SaleDto sale)
+    {
+        var parameters = new DialogParameters<PaymentFormDialog> { { x => x.Sale, sale } };
+        var options = new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true, CloseOnEscapeKey = true };
+        var dialog = await DialogService.ShowAsync<PaymentFormDialog>("Catat Pembayaran", parameters, options);
+        var result = await dialog.Result;
+        if (result is { Canceled: false })
+        {
+            Snackbar.Add("Pembayaran berhasil dicatat.", Severity.Success);
+            await LoadAsync();
+        }
+    }
+
+    private static bool IsOverdue(SaleDto sale) =>
+        sale.RemainingAmount > 0 && sale.DueDate is not null && sale.DueDate.Value.Date < DateTime.Today;
+
+    private static Color StatusColor(PaymentStatus status) => status switch
+    {
+        PaymentStatus.Paid => Color.Success,
+        PaymentStatus.PartiallyPaid => Color.Warning,
+        _ => Color.Error,
+    };
+}

@@ -1,0 +1,245 @@
+@page "/sales/{Id:int}/print"
+@attribute [Authorize(Policy = Policies.ViewAllData)]
+@using SIA.Application.DTOs.Payments
+@using SIA.Application.DTOs.Sales
+@using SIA.Application.Services.Payments
+@using SIA.Application.Services.Sales
+@inject ISaleService SaleService
+@inject IPaymentService PaymentService
+@inject IDialogService DialogService
+@inject ISnackbar Snackbar
+@inject IJSRuntime JS
+@inject IAuthorizationService AuthorizationService
+@inject AuthenticationStateProvider AuthStateProvider
+
+<PageTitle>Nota Penjualan @(_sale?.InvoiceNumber ?? "") - SIA</PageTitle>
+
+<div class="d-flex flex-wrap align-center justify-space-between gap-2 no-print">
+    <div>
+        <h1 class="sia-page-title">Nota Penjualan</h1>
+        <MudText Typo="Typo.body2" Class="mud-text-secondary">Detail transaksi dan cetak nota penjualan.</MudText>
+    </div>
+    <div class="d-flex flex-wrap gap-2">
+        <MudButton Variant="Variant.Outlined" Color="Color.Primary" StartIcon="@Icons.Material.Filled.ArrowBack"
+                   Href="sales">Kembali ke Daftar</MudButton>
+        @if (_canManage && _sale is { RemainingAmount: > 0 })
+        {
+            <MudButton Variant="Variant.Outlined" Color="Color.Primary" StartIcon="@Icons.Material.Outlined.Payments"
+                       OnClick="RecordPaymentAsync">Catat Pembayaran</MudButton>
+        }
+        @if (_sale is not null)
+        {
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Print"
+                       OnClick="PrintAsync">Cetak Nota</MudButton>
+        }
+    </div>
+</div>
+
+@if (_loading)
+{
+    <MudPaper Outlined="true" Class="sia-card pa-6 mt-4">
+        <MudText Typo="Typo.body2">Memuat nota penjualan...</MudText>
+    </MudPaper>
+}
+else if (_sale is null)
+{
+    <MudAlert Severity="Severity.Error" Variant="Variant.Outlined" Class="mt-4">
+        @(_error ?? "Data penjualan tidak ditemukan.")
+    </MudAlert>
+}
+else
+{
+    <MudPaper Outlined="true" Class="sia-card pa-6 mt-4 print-container">
+        <div class="d-flex flex-wrap justify-space-between align-start gap-4 mb-4">
+            <div>
+                <MudText Typo="Typo.h6"><strong>TOKO AKI / BATERAI KENDARAAN</strong></MudText>
+                <MudText Typo="Typo.body2" Class="mud-text-secondary">Nota Penjualan Resmi</MudText>
+            </div>
+            <div style="text-align:right">
+                <MudText Typo="Typo.subtitle1"><strong>@_sale.InvoiceNumber</strong></MudText>
+                <MudChip T="string" Size="Size.Small" Color="@StatusColor(_sale.PaymentStatus)" Variant="Variant.Filled">
+                    @Display.Label(_sale.PaymentStatus)
+                </MudChip>
+            </div>
+        </div>
+
+        <MudDivider Class="my-3" />
+
+        <MudGrid Spacing="2" Class="mb-4">
+            <MudItem xs="12" sm="6">
+                <MudText Typo="Typo.caption" Class="mud-text-secondary">PELANGGAN</MudText>
+                <MudText Typo="Typo.body1"><strong>@_sale.CustomerName</strong></MudText>
+            </MudItem>
+            <MudItem xs="12" sm="6">
+                <div class="d-flex justify-space-between">
+                    <MudText Typo="Typo.body2" Class="mud-text-secondary">Tanggal Transaksi</MudText>
+                    <MudText Typo="Typo.body2">@Display.Date(_sale.SaleDate)</MudText>
+                </div>
+                <div class="d-flex justify-space-between mt-1">
+                    <MudText Typo="Typo.body2" Class="mud-text-secondary">Jatuh Tempo</MudText>
+                    <MudText Typo="Typo.body2">@Display.Date(_sale.DueDate)</MudText>
+                </div>
+                <div class="d-flex justify-space-between mt-1">
+                    <MudText Typo="Typo.body2" Class="mud-text-secondary">Metode Pembayaran</MudText>
+                    <MudText Typo="Typo.body2">@Display.Label(_sale.PaymentMethod)</MudText>
+                </div>
+                @if (!string.IsNullOrWhiteSpace(_sale.UserName))
+                {
+                    <div class="d-flex justify-space-between mt-1">
+                        <MudText Typo="Typo.body2" Class="mud-text-secondary">Petugas</MudText>
+                        <MudText Typo="Typo.body2">@_sale.UserName</MudText>
+                    </div>
+                }
+            </MudItem>
+        </MudGrid>
+
+        <MudSimpleTable Dense="true" Bordered="true" Class="sia-table mb-4">
+            <thead>
+                <tr>
+                    <th style="width:45px">No</th>
+                    <th>Produk</th>
+                    <th style="text-align:right">Jumlah</th>
+                    <th style="text-align:right">Harga Satuan</th>
+                    <th style="text-align:right">Subtotal</th>
+                </tr>
+            </thead>
+            <tbody>
+                @for (var i = 0; i < _sale.Details.Count; i++)
+                {
+                    var d = _sale.Details[i];
+                    <tr>
+                        <td>@(i + 1)</td>
+                        <td>
+                            @d.ProductName
+                            @if (!string.IsNullOrWhiteSpace(d.SKU))
+                            {
+                                <span class="mud-text-secondary"> (@d.SKU)</span>
+                            }
+                        </td>
+                        <td style="text-align:right">@d.Quantity</td>
+                        <td style="text-align:right">@Display.Rupiah(d.UnitPrice)</td>
+                        <td style="text-align:right">@Display.Rupiah(d.Subtotal)</td>
+                    </tr>
+                }
+            </tbody>
+        </MudSimpleTable>
+
+        <MudGrid Spacing="2">
+            <MudItem xs="12" sm="6">
+                @if (!string.IsNullOrWhiteSpace(_sale.Notes))
+                {
+                    <MudText Typo="Typo.caption" Class="mud-text-secondary">CATATAN</MudText>
+                    <MudText Typo="Typo.body2">@_sale.Notes</MudText>
+                }
+            </MudItem>
+            <MudItem xs="12" sm="6">
+                <div class="d-flex justify-space-between">
+                    <MudText Typo="Typo.subtitle2">Total</MudText>
+                    <MudText Typo="Typo.subtitle2"><strong>@Display.Rupiah(_sale.TotalAmount)</strong></MudText>
+                </div>
+                <div class="d-flex justify-space-between mt-1">
+                    <MudText Typo="Typo.body2">Dibayar</MudText>
+                    <MudText Typo="Typo.body2">@Display.Rupiah(_sale.PaidAmount)</MudText>
+                </div>
+                <MudDivider Class="my-2" />
+                <div class="d-flex justify-space-between">
+                    <MudText Typo="Typo.subtitle2">Sisa Tagihan</MudText>
+                    <MudText Typo="Typo.subtitle2" Color="@(_sale.RemainingAmount > 0 ? Color.Error : Color.Default)">
+                        <strong>@Display.Rupiah(_sale.RemainingAmount)</strong>
+                    </MudText>
+                </div>
+            </MudItem>
+        </MudGrid>
+
+        @if (_payments.Count > 0)
+        {
+            <MudDivider Class="my-4" />
+            <MudText Typo="Typo.subtitle2" Class="mb-2"><strong>Riwayat Pembayaran</strong></MudText>
+            <MudSimpleTable Dense="true" Bordered="true" Class="sia-table">
+                <thead>
+                    <tr>
+                        <th>No. Pembayaran</th>
+                        <th>Tanggal</th>
+                        <th>Metode</th>
+                        <th style="text-align:right">Jumlah</th>
+                        <th>Catatan</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var p in _payments)
+                    {
+                        <tr>
+                            <td>@p.PaymentNumber</td>
+                            <td>@Display.Date(p.PaymentDate)</td>
+                            <td>@Display.Label(p.PaymentMethod)</td>
+                            <td style="text-align:right">@Display.Rupiah(p.Amount)</td>
+                            <td>@(p.Notes ?? "-")</td>
+                        </tr>
+                    }
+                </tbody>
+            </MudSimpleTable>
+        }
+    </MudPaper>
+}
+
+@code {
+    [Parameter] public int Id { get; set; }
+
+    private SaleDto? _sale;
+    private IReadOnlyList<PaymentDto> _payments = Array.Empty<PaymentDto>();
+    private string? _error;
+    private bool _loading = true;
+    private bool _canManage;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        var state = await AuthStateProvider.GetAuthenticationStateAsync();
+        _canManage = (await AuthorizationService.AuthorizeAsync(state.User, Policies.ManageTransactions)).Succeeded;
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        _loading = true;
+        _error = null;
+
+        var saleResult = await SaleService.GetByIdAsync(Id);
+        if (saleResult.IsSuccess)
+        {
+            _sale = saleResult.Value;
+            var paymentResult = await PaymentService.GetByReferenceAsync(ReferenceType.Sale, Id);
+            _payments = paymentResult.IsSuccess ? paymentResult.Value! : Array.Empty<PaymentDto>();
+        }
+        else
+        {
+            _sale = null;
+            _error = saleResult.Error;
+        }
+
+        _loading = false;
+    }
+
+    private async Task RecordPaymentAsync()
+    {
+        if (_sale is null) return;
+
+        var parameters = new DialogParameters<PaymentFormDialog> { { x => x.Sale, _sale } };
+        var options = new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true, CloseOnEscapeKey = true };
+        var dialog = await DialogService.ShowAsync<PaymentFormDialog>("Catat Pembayaran", parameters, options);
+        var result = await dialog.Result;
+        if (result is { Canceled: false })
+        {
+            Snackbar.Add("Pembayaran berhasil dicatat.", Severity.Success);
+            await LoadAsync();
+        }
+    }
+
+    private async Task PrintAsync() => await JS.InvokeVoidAsync("window.print");
+
+    private static Color StatusColor(PaymentStatus status) => status switch
+    {
+        PaymentStatus.Paid => Color.Success,
+        PaymentStatus.PartiallyPaid => Color.Warning,
+        _ => Color.Error,
+    };
+}

@@ -1,0 +1,270 @@
+@page "/sales/new"
+@attribute [Authorize(Policy = Policies.ManageTransactions)]
+@using SIA.Application.DTOs.Inventory
+@using SIA.Application.DTOs.Sales
+@using SIA.Application.Services.Inventory
+@using SIA.Application.Services.Sales
+@inject ISaleService SaleService
+@inject ICustomerService CustomerService
+@inject IProductService ProductService
+@inject ISnackbar Snackbar
+@inject NavigationManager Navigation
+
+<PageTitle>Penjualan Baru - SIA</PageTitle>
+
+<div class="d-flex flex-wrap align-center justify-space-between gap-2">
+    <div>
+        <h1 class="sia-page-title">Penjualan Baru</h1>
+        <MudText Typo="Typo.body2" Class="mud-text-secondary">
+            Buat transaksi penjualan. Stok berkurang otomatis dan tercatat pada kartu stok.
+        </MudText>
+    </div>
+    <MudButton Variant="Variant.Outlined" Color="Color.Primary" StartIcon="@Icons.Material.Filled.ArrowBack"
+               Href="sales">Kembali ke Daftar</MudButton>
+</div>
+
+<EditForm Model="_model" OnValidSubmit="SubmitAsync">
+    <DataAnnotationsValidator />
+
+    @if (_errors.Count > 0)
+    {
+        <MudAlert Severity="Severity.Error" Variant="Variant.Outlined" Dense="true" Class="mt-4">
+            @foreach (var error in _errors)
+            {
+                <div>@error</div>
+            }
+        </MudAlert>
+    }
+
+    <MudPaper Outlined="true" Class="sia-card pa-4 mt-4">
+        <MudText Typo="Typo.subtitle1" Class="mb-3"><strong>Informasi Transaksi</strong></MudText>
+        <MudGrid Spacing="2">
+            <MudItem xs="12" sm="5">
+                <MudSelect T="int" @bind-Value="_model.CustomerId" Label="Pelanggan" Variant="Variant.Outlined" Required="true">
+                    <MudSelectItem T="int" Value="0" Disabled="true">-- Pilih pelanggan --</MudSelectItem>
+                    @foreach (var c in _customers)
+                    {
+                        <MudSelectItem T="int" Value="@c.Id">@c.Name @(string.IsNullOrWhiteSpace(c.Phone) ? "" : $"({c.Phone})")</MudSelectItem>
+                    }
+                </MudSelect>
+            </MudItem>
+            <MudItem xs="12" sm="4">
+                <MudDatePicker Label="Tanggal penjualan" @bind-Date="_saleDate" DateFormat="dd/MM/yyyy"
+                               Variant="Variant.Outlined" Required="true" />
+            </MudItem>
+            <MudItem xs="12" sm="3">
+                <MudSelect T="PaymentMethod" @bind-Value="_model.PaymentMethod" Label="Metode pembayaran" Variant="Variant.Outlined">
+                    @foreach (var method in Enum.GetValues<PaymentMethod>())
+                    {
+                        <MudSelectItem T="PaymentMethod" Value="@method">@Display.Label(method)</MudSelectItem>
+                    }
+                </MudSelect>
+            </MudItem>
+        </MudGrid>
+    </MudPaper>
+
+    <MudPaper Outlined="true" Class="sia-card pa-4 mt-4">
+        <div class="d-flex flex-wrap align-center justify-space-between gap-2 mb-3">
+            <MudText Typo="Typo.subtitle1"><strong>Item Penjualan</strong></MudText>
+            <MudButton Variant="Variant.Outlined" Color="Color.Primary" Size="Size.Small"
+                       StartIcon="@Icons.Material.Filled.Add" OnClick="AddLine">Tambah Baris</MudButton>
+        </div>
+
+        <MudTable Items="_model.Details" Hover="true" Dense="true" Breakpoint="Breakpoint.Sm"
+                  Class="sia-table" Elevation="0">
+            <HeaderContent>
+                <MudTh Style="min-width:260px">Produk</MudTh>
+                <MudTh Style="width:110px; text-align:right">Stok</MudTh>
+                <MudTh Style="width:130px">Jumlah</MudTh>
+                <MudTh Style="width:190px">Harga Satuan</MudTh>
+                <MudTh Style="width:170px; text-align:right">Subtotal</MudTh>
+                <MudTh Style="width:60px; text-align:right">Aksi</MudTh>
+            </HeaderContent>
+            <RowTemplate Context="line">
+                <MudTd DataLabel="Produk">
+                    <MudSelect T="int" Value="line.ProductId" ValueChanged="id => OnProductChanged(line, id)"
+                               Placeholder="Pilih produk..." Variant="Variant.Outlined" Margin="Margin.Dense">
+                        <MudSelectItem T="int" Value="0" Disabled="true">-- Pilih produk --</MudSelectItem>
+                        @foreach (var p in _products)
+                        {
+                            <MudSelectItem T="int" Value="@p.Id">
+                                @p.Name @(string.IsNullOrWhiteSpace(p.SKU) ? "" : $"[{p.SKU}]") — Stok: @p.Stock
+                            </MudSelectItem>
+                        }
+                    </MudSelect>
+                </MudTd>
+                <MudTd DataLabel="Stok" Style="text-align:right">
+                    @{
+                        var stock = GetStock(line.ProductId);
+                    }
+                    @if (line.ProductId > 0)
+                    {
+                        <MudChip T="string" Size="Size.Small"
+                                 Color="@(line.Quantity > stock ? Color.Error : Color.Success)"
+                                 Variant="Variant.Outlined">@stock</MudChip>
+                    }
+                    else
+                    {
+                        <span>-</span>
+                    }
+                </MudTd>
+                <MudTd DataLabel="Jumlah">
+                    <MudNumericField T="int" @bind-Value="line.Quantity" Min="1" Variant="Variant.Outlined"
+                                     Margin="Margin.Dense" Immediate="true" />
+                </MudTd>
+                <MudTd DataLabel="Harga Satuan">
+                    <MudNumericField T="decimal" @bind-Value="line.UnitPrice" Min="0m" Format="N0"
+                                     Culture="Display.Culture" Adornment="Adornment.Start" AdornmentText="Rp"
+                                     HideSpinButtons="true" Variant="Variant.Outlined" Margin="Margin.Dense"
+                                     Immediate="true" />
+                </MudTd>
+                <MudTd DataLabel="Subtotal" Style="text-align:right">
+                    <strong>@Display.Rupiah(line.Quantity * line.UnitPrice)</strong>
+                </MudTd>
+                <MudTd DataLabel="Aksi" Style="text-align:right">
+                    <MudIconButton Icon="@Icons.Material.Outlined.Delete" Size="Size.Small" Color="Color.Error"
+                                   Disabled="@(_model.Details.Count <= 1)"
+                                   OnClick="() => RemoveLine(line)" aria-label="Hapus baris" />
+                </MudTd>
+            </RowTemplate>
+        </MudTable>
+    </MudPaper>
+
+    <MudPaper Outlined="true" Class="sia-card pa-4 mt-4">
+        <MudGrid Spacing="3">
+            <MudItem xs="12" md="6">
+                <MudTextField @bind-Value="_model.Notes" For="@(() => _model.Notes)" Label="Catatan (opsional)"
+                              Lines="3" Variant="Variant.Outlined" />
+            </MudItem>
+            <MudItem xs="12" md="6">
+                <div class="d-flex justify-space-between align-center mb-2">
+                    <MudText Typo="Typo.subtitle1">Total Penjualan</MudText>
+                    <MudText Typo="Typo.h6"><strong>@Display.Rupiah(TotalAmount)</strong></MudText>
+                </div>
+
+                <div class="d-flex align-center gap-2 mb-3">
+                    <MudNumericField T="decimal" @bind-Value="_model.PaidAmount" For="@(() => _model.PaidAmount)"
+                                     Label="Jumlah dibayar saat ini" Min="0m" Format="N0" Culture="Display.Culture"
+                                     Adornment="Adornment.Start" AdornmentText="Rp" HideSpinButtons="true"
+                                     Variant="Variant.Outlined" Immediate="true" Class="flex-grow-1" />
+                    <MudButton Variant="Variant.Outlined" Color="Color.Primary" OnClick="PayFull">
+                        Bayar Lunas
+                    </MudButton>
+                </div>
+
+                <div class="d-flex justify-space-between align-center mb-3">
+                    <MudText Typo="Typo.body2" Class="mud-text-secondary">Sisa Tagihan (Piutang)</MudText>
+                    <div class="d-flex align-center gap-2">
+                        <MudChip T="string" Size="Size.Small" Color="@PreviewStatusColor" Variant="Variant.Filled">
+                            @Display.Label(PreviewStatus)
+                        </MudChip>
+                        <MudText Typo="Typo.subtitle1" Color="@(IsCredit ? Color.Error : Color.Default)">
+                            <strong>@Display.Rupiah(RemainingAmount)</strong>
+                        </MudText>
+                    </div>
+                </div>
+
+                <MudDatePicker Label="@(IsCredit ? "Tanggal jatuh tempo (wajib untuk kredit)" : "Tanggal jatuh tempo (opsional)")"
+                               @bind-Date="_model.DueDate" DateFormat="dd/MM/yyyy"
+                               Variant="Variant.Outlined" Clearable="@(!IsCredit)" Required="@IsCredit"
+                               HelperText="@(IsCredit ? "Transaksi belum lunas — tanggal jatuh tempo wajib diisi." : null)" />
+            </MudItem>
+        </MudGrid>
+
+        <MudDivider Class="my-4" />
+
+        <div class="d-flex justify-end gap-2">
+            <MudButton Variant="Variant.Text" Href="sales" Disabled="_saving">Batal</MudButton>
+            <MudButton ButtonType="ButtonType.Submit" Variant="Variant.Filled" Color="Color.Primary"
+                       StartIcon="@Icons.Material.Filled.Save" Disabled="_saving">
+                @(_saving ? "Menyimpan..." : "Simpan Penjualan")
+            </MudButton>
+        </div>
+    </MudPaper>
+</EditForm>
+
+@code {
+    private readonly CreateSaleDto _model = new()
+    {
+        SaleDate = DateTime.Today,
+        PaymentMethod = PaymentMethod.Cash,
+        Details = new List<CreateSaleDetailDto> { new() { Quantity = 1 } },
+    };
+
+    private IReadOnlyList<CustomerDto> _customers = Array.Empty<CustomerDto>();
+    private IReadOnlyList<ProductDto> _products = Array.Empty<ProductDto>();
+    private DateTime? _saleDate = DateTime.Today;
+    private List<string> _errors = new();
+    private bool _saving;
+
+    private decimal TotalAmount => _model.Details.Sum(d => d.Quantity * d.UnitPrice);
+    private decimal RemainingAmount => Math.Max(0m, TotalAmount - _model.PaidAmount);
+    private bool IsCredit => TotalAmount > 0 && _model.PaidAmount < TotalAmount;
+
+    private PaymentStatus PreviewStatus =>
+        _model.PaidAmount >= TotalAmount && TotalAmount > 0
+            ? PaymentStatus.Paid
+            : _model.PaidAmount <= 0
+                ? PaymentStatus.Unpaid
+                : PaymentStatus.PartiallyPaid;
+
+    private Color PreviewStatusColor => PreviewStatus switch
+    {
+        PaymentStatus.Paid => Color.Success,
+        PaymentStatus.PartiallyPaid => Color.Warning,
+        _ => Color.Error,
+    };
+
+    protected override async Task OnInitializedAsync()
+    {
+        var customerResult = await CustomerService.GetAllAsync();
+        if (customerResult.IsSuccess)
+            _customers = customerResult.Value!;
+
+        var productResult = await ProductService.GetAllAsync();
+        if (productResult.IsSuccess)
+            _products = productResult.Value!;
+    }
+
+    private void OnProductChanged(CreateSaleDetailDto line, int productId)
+    {
+        line.ProductId = productId;
+        var product = _products.FirstOrDefault(p => p.Id == productId);
+        if (product is not null)
+            line.UnitPrice = product.SellingPrice;
+    }
+
+    private int GetStock(int productId) =>
+        _products.FirstOrDefault(p => p.Id == productId)?.Stock ?? 0;
+
+    private void AddLine() =>
+        _model.Details.Add(new CreateSaleDetailDto { Quantity = 1 });
+
+    private void RemoveLine(CreateSaleDetailDto line)
+    {
+        if (_model.Details.Count > 1)
+            _model.Details.Remove(line);
+    }
+
+    private void PayFull() => _model.PaidAmount = TotalAmount;
+
+    private async Task SubmitAsync()
+    {
+        _saving = true;
+        _errors.Clear();
+
+        _model.SaleDate = _saleDate ?? DateTime.Today;
+        var result = await SaleService.CreateAsync(_model);
+
+        _saving = false;
+        if (result.IsSuccess)
+        {
+            Snackbar.Add($"Penjualan {result.Value!.InvoiceNumber} berhasil disimpan.", Severity.Success);
+            Navigation.NavigateTo($"sales/{result.Value.Id}/print");
+        }
+        else
+        {
+            _errors = result.Errors.ToList();
+        }
+    }
+}

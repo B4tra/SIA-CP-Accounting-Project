@@ -46,4 +46,23 @@ public static class Display
         BatteryType.GEL => "GEL",
         _ => batteryType.ToString()!,
     };
+
+    /// <summary>Contoh: 14/10/2026; null → "-".</summary>
+    public static string Date(DateTime? value) =>
+        value is null ? "-" : value.Value.ToString("dd/MM/yyyy", Culture);
+
+    public static string Label(PaymentStatus status) => status switch
+    {
+        PaymentStatus.Unpaid => "Belum Bayar",
+        PaymentStatus.PartiallyPaid => "Dibayar Sebagian",
+        PaymentStatus.Paid => "Lunas",
+        _ => status.ToString(),
+    };
+
+    public static string Label(PaymentMethod method) => method switch
+    {
+        PaymentMethod.Cash => "Tunai",
+        PaymentMethod.Transfer => "Transfer",
+        _ => method.ToString(),
+    };
 }

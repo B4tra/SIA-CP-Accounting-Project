@@ -5,6 +5,7 @@ using Microsoft.Extensions.DependencyInjection;
 using SIA.Application.Common.Interfaces;
 using SIA.Application.Services.Accounting;
 using SIA.Application.Services.Inventory;
+using SIA.Application.Services.Payments;
 using SIA.Application.Services.Purchasing;
 using SIA.Application.Services.Sales;
 using SIA.Application.Services.System;
@@ -53,6 +54,10 @@ public static class DependencyInjection
         services.AddScoped<IProductService, ProductService>();
         services.AddScoped<ICustomerService, CustomerService>();
         services.AddScoped<ISupplierService, SupplierService>();
+
+        // Service aplikasi (Tahap penjualan & pembayaran)
+        services.AddScoped<ISaleService, SaleService>();
+        services.AddScoped<IPaymentService, PaymentService>();
 
         // Identity: user, role, store EF Core. SignInManager & cookie didaftarkan di layer Web.
         services.AddIdentityCore<ApplicationUser>(options =>
