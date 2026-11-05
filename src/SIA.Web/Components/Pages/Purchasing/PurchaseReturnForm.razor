@@ -1,0 +1,483 @@
+@page "/purchase-returns/new"
+@page "/purchase-returns/{Id:int}"
+@attribute [Authorize(Policy = Policies.ViewAllData)]
+@using SIA.Application.DTOs.Purchasing
+@using SIA.Application.DTOs.Inventory
+@using SIA.Application.Services.Purchasing
+@using SIA.Application.Services.Inventory
+@inject IPurchaseReturnService PurchaseReturnService
+@inject IPurchaseOrderService PurchaseOrderService
+@inject IProductService ProductService
+@inject ISnackbar Snackbar
+@inject NavigationManager Navigation
+@inject IAuthorizationService AuthorizationService
+@inject AuthenticationStateProvider AuthStateProvider
+
+<PageTitle>@(IsNew ? "Retur Pembelian Baru" : $"Retur Pembelian {_existingReturn?.ReturnNumber}") - SIA</PageTitle>
+
+<div class="d-flex flex-wrap align-center justify-space-between gap-2">
+    <div>
+        <h1 class="sia-page-title">@(IsNew ? "Retur Pembelian Baru" : $"Retur Pembelian {_existingReturn?.ReturnNumber}")</h1>
+        <MudText Typo="Typo.body2" Class="mud-text-secondary">
+            @(IsNew
+                ? "Pilih Purchase Order yang telah diterima (Received), tentukan kuantitas barang yang dikembalikan ke pemasok, dan pastikan stok gudang mencukupi."
+                : "Rincian dokumen pengembalian barang ke pemasok dan mutasi stok kartu keluar.")
+        </MudText>
+    </div>
+    <MudButton Variant="Variant.Outlined" Color="Color.Primary" StartIcon="@Icons.Material.Filled.ArrowBack"
+               Href="purchase-returns">Kembali ke Daftar</MudButton>
+</div>
+
+@if (_errors.Count > 0)
+{
+    <MudAlert Severity="Severity.Error" Variant="Variant.Outlined" Dense="true" Class="mt-4">
+        @foreach (var error in _errors)
+        {
+            <div>@error</div>
+        }
+    </MudAlert>
+}
+
+@if (_loading)
+{
+    <MudPaper Outlined="true" Class="sia-card pa-8 mt-4 d-flex justify-center">
+        <MudProgressCircular Color="Color.Primary" Indeterminate="true" />
+    </MudPaper>
+}
+else if (!IsNew && _existingReturn is null)
+{
+    <MudAlert Severity="Severity.Error" Class="mt-4">Dokumen retur pembelian tidak ditemukan.</MudAlert>
+}
+else if (!IsNew && _existingReturn is not null)
+{
+    <!-- MODE BACA DETAIL (READ-ONLY) -->
+    <MudPaper Outlined="true" Class="sia-card pa-4 mt-4">
+        <MudText Typo="Typo.subtitle1" Class="mb-3"><strong>Informasi Dokumen Retur</strong></MudText>
+        <MudGrid Spacing="2">
+            <MudItem xs="12" sm="3">
+                <MudText Typo="Typo.caption" Class="mud-text-secondary">Nomor Retur</MudText>
+                <MudText Typo="Typo.subtitle1"><strong>@_existingReturn.ReturnNumber</strong></MudText>
+            </MudItem>
+            <MudItem xs="12" sm="3">
+                <MudText Typo="Typo.caption" Class="mud-text-secondary">Tanggal Retur</MudText>
+                <MudText Typo="Typo.body2">@Display.Date(_existingReturn.ReturnDate)</MudText>
+            </MudItem>
+            <MudItem xs="12" sm="3">
+                <MudText Typo="Typo.caption" Class="mud-text-secondary">No. PO Asal</MudText>
+                <MudText Typo="Typo.body2">@_existingReturn.PONumber</MudText>
+            </MudItem>
+            <MudItem xs="12" sm="3">
+                <MudText Typo="Typo.caption" Class="mud-text-secondary">Pemasok</MudText>
+                <MudText Typo="Typo.body2">@(_existingReturn.SupplierName ?? "-")</MudText>
+            </MudItem>
+            <MudItem xs="12" sm="3">
+                <MudText Typo="Typo.caption" Class="mud-text-secondary">Dibuat Oleh</MudText>
+                <MudText Typo="Typo.body2">@(_existingReturn.UserName ?? _existingReturn.UserId)</MudText>
+            </MudItem>
+            <MudItem xs="12" sm="3">
+                <MudText Typo="Typo.caption" Class="mud-text-secondary">Total Nilai Retur</MudText>
+                <MudText Typo="Typo.subtitle1" Color="Color.Primary"><strong>@Display.Rupiah(_existingReturn.TotalAmount)</strong></MudText>
+            </MudItem>
+            <MudItem xs="12" sm="6">
+                <MudText Typo="Typo.caption" Class="mud-text-secondary">Alasan Retur</MudText>
+                <MudText Typo="Typo.body2">@(string.IsNullOrWhiteSpace(_existingReturn.Reason) ? "-" : _existingReturn.Reason)</MudText>
+            </MudItem>
+        </MudGrid>
+    </MudPaper>
+
+    <MudPaper Outlined="true" Class="sia-card pa-4 mt-4">
+        <MudText Typo="Typo.subtitle1" Class="mb-3"><strong>Rincian Barang yang Dikembalikan</strong></MudText>
+        <MudTable Items="_existingReturn.Details" Hover="true" Dense="true" Breakpoint="Breakpoint.Sm"
+                  Class="sia-table" Elevation="0">
+            <HeaderContent>
+                <MudTh>Produk</MudTh>
+                <MudTh Style="width:140px; text-align:right">Jumlah Diretur</MudTh>
+                <MudTh Style="width:200px; text-align:right">Harga Beli Satuan</MudTh>
+                <MudTh Style="width:200px; text-align:right">Subtotal</MudTh>
+            </HeaderContent>
+            <RowTemplate Context="item">
+                <MudTd DataLabel="Produk">@item.ProductName</MudTd>
+                <MudTd DataLabel="Jumlah Diretur" Style="text-align:right">@item.Quantity</MudTd>
+                <MudTd DataLabel="Harga Beli Satuan" Style="text-align:right">@Display.Rupiah(item.UnitPrice)</MudTd>
+                <MudTd DataLabel="Subtotal" Style="text-align:right">@Display.Rupiah(item.Subtotal)</MudTd>
+            </RowTemplate>
+            <FooterContent>
+                <MudTFootRow>
+                    <MudTd><strong>Total</strong></MudTd>
+                    <MudTd Style="text-align:right"><strong>@_existingReturn.Details.Sum(d => d.Quantity)</strong></MudTd>
+                    <MudTd></MudTd>
+                    <MudTd Style="text-align:right"><strong>@Display.Rupiah(_existingReturn.TotalAmount)</strong></MudTd>
+                </MudTFootRow>
+            </FooterContent>
+        </MudTable>
+    </MudPaper>
+}
+else
+{
+    <!-- MODE PEMBUATAN RETUR BARU (ISNEW) -->
+    @if (!_canManage)
+    {
+        <MudAlert Severity="Severity.Warning" Class="mt-4">
+            Anda tidak memiliki izin untuk membuat retur pembelian.
+        </MudAlert>
+    }
+    else
+    {
+        <MudPaper Outlined="true" Class="sia-card pa-4 mt-4">
+            <MudText Typo="Typo.subtitle1" Class="mb-3"><strong>Informasi Purchase Order & Retur</strong></MudText>
+            <MudGrid Spacing="2">
+                <MudItem xs="12" sm="5">
+                    <MudSelect T="int" Value="_selectedPoId" ValueChanged="OnPoSelectedAsync"
+                               Label="Nomor Purchase Order" Variant="Variant.Outlined" Required="true">
+                        <MudSelectItem T="int" Value="0" Disabled="true">-- Pilih Purchase Order (Received) --</MudSelectItem>
+                        @foreach (var po in _receivedPos)
+                        {
+                            <MudSelectItem T="int" Value="@po.Id">
+                                @po.PONumber — @po.SupplierName (@Display.Date(po.OrderDate))
+                            </MudSelectItem>
+                        }
+                    </MudSelect>
+                </MudItem>
+                <MudItem xs="12" sm="3">
+                    <MudDatePicker Label="Tanggal Retur" @bind-Date="_returnDate" DateFormat="dd/MM/yyyy"
+                                   Variant="Variant.Outlined" Required="true" MinDate="_selectedPo?.OrderDate" />
+                </MudItem>
+                <MudItem xs="12" sm="4">
+                    <MudTextField @bind-Value="_reason" Label="Alasan Retur (opsional)"
+                                  Lines="2" MaxLength="500" Variant="Variant.Outlined" />
+                </MudItem>
+            </MudGrid>
+        </MudPaper>
+
+        <MudPaper Outlined="true" Class="sia-card pa-4 mt-4">
+            <div class="d-flex flex-wrap align-center justify-space-between gap-2 mb-3">
+                <div>
+                    <MudText Typo="Typo.subtitle1"><strong>Item Barang yang Dikembalikan</strong></MudText>
+                    <MudText Typo="Typo.caption" Class="mud-text-secondary">
+                        Barang yang diretur akan otomatis mengurangi stok gudang dan mencatat mutasi 'ReturnOut' pada kartu stok. Kuantitas retur tidak boleh melebihi sisa PO maupun stok gudang saat ini.
+                    </MudText>
+                </div>
+            </div>
+
+            @if (_selectedPoId <= 0)
+            {
+                <MudText Typo="Typo.body2" Class="mud-text-secondary pa-4 text-center">
+                    Silakan pilih Purchase Order di atas untuk menampilkan rincian barang.
+                </MudText>
+            }
+            else if (_items.Count == 0)
+            {
+                <MudText Typo="Typo.body2" Class="mud-text-secondary pa-4 text-center">
+                    Purchase Order ini tidak memiliki rincian barang.
+                </MudText>
+            }
+            else
+            {
+                <MudTable Items="_items" Hover="true" Dense="true" Breakpoint="Breakpoint.Sm"
+                          Class="sia-table" Elevation="0">
+                    <HeaderContent>
+                        <MudTh>Produk</MudTh>
+                        <MudTh Style="width:100px; text-align:right">Diterima</MudTh>
+                        <MudTh Style="width:110px; text-align:right">Pernah Diretur</MudTh>
+                        <MudTh Style="width:90px; text-align:center">Sisa PO</MudTh>
+                        <MudTh Style="width:120px; text-align:center">Stok Gudang</MudTh>
+                        <MudTh Style="width:100px; text-align:center">Maks Retur</MudTh>
+                        <MudTh Style="width:150px; text-align:right">Harga Beli</MudTh>
+                        <MudTh Style="width:130px; text-align:right">Qty Retur</MudTh>
+                        <MudTh Style="width:150px; text-align:right">Subtotal</MudTh>
+                    </HeaderContent>
+                    <RowTemplate Context="line">
+                        <MudTd DataLabel="Produk">
+                            <strong>@line.ProductName</strong>
+                            @if (!string.IsNullOrWhiteSpace(line.SKU))
+                            {
+                                <MudText Typo="Typo.caption" Class="mud-text-secondary d-block">SKU: @line.SKU</MudText>
+                            }
+                        </MudTd>
+                        <MudTd DataLabel="Diterima" Style="text-align:right">@line.ReceivedQuantity</MudTd>
+                        <MudTd DataLabel="Pernah Diretur" Style="text-align:right">@line.PreviouslyReturnedQuantity</MudTd>
+                        <MudTd DataLabel="Sisa PO" Style="text-align:center">
+                            <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined">
+                                @line.RemainingReturnableQuantity
+                            </MudChip>
+                        </MudTd>
+                        <MudTd DataLabel="Stok Gudang" Style="text-align:center">
+                            @if (line.WarehouseStock < line.RemainingReturnableQuantity)
+                            {
+                                <MudTooltip Text="Stok gudang lebih kecil dari sisa PO">
+                                    <MudChip T="string" Size="Size.Small" Color="Color.Warning" Variant="Variant.Filled">
+                                        @line.WarehouseStock
+                                    </MudChip>
+                                </MudTooltip>
+                            }
+                            else
+                            {
+                                <MudChip T="string" Size="Size.Small" Color="Color.Default" Variant="Variant.Outlined">
+                                    @line.WarehouseStock
+                                </MudChip>
+                            }
+                        </MudTd>
+                        <MudTd DataLabel="Maks Retur" Style="text-align:center">
+                            <MudChip T="string" Size="Size.Small"
+                                     Color="@(line.MaxReturnableQuantity > 0 ? Color.Success : Color.Default)"
+                                     Variant="Variant.Filled">
+                                @line.MaxReturnableQuantity
+                            </MudChip>
+                        </MudTd>
+                        <MudTd DataLabel="Harga Beli" Style="text-align:right">@Display.Rupiah(line.UnitPrice)</MudTd>
+                        <MudTd DataLabel="Qty Retur" Style="text-align:right">
+                            <MudNumericField T="int" @bind-Value="line.ReturnQuantity"
+                                             Min="0" Max="@line.MaxReturnableQuantity"
+                                             Immediate="true"
+                                             Disabled="@(line.MaxReturnableQuantity <= 0)"
+                                             Margin="Margin.Dense" Variant="Variant.Outlined"
+                                             Style="max-width:100px; text-align:right" />
+                        </MudTd>
+                        <MudTd DataLabel="Subtotal" Style="text-align:right">@Display.Rupiah(line.Subtotal)</MudTd>
+                    </RowTemplate>
+                </MudTable>
+
+                <MudPaper Outlined="true" Class="sia-card pa-4 mt-4 d-flex flex-wrap align-center justify-space-between gap-4">
+                    <div>
+                        <MudText Typo="Typo.caption" Class="mud-text-secondary">Total Barang Diretur</MudText>
+                        <MudText Typo="Typo.subtitle1"><strong>@_items.Sum(i => i.ReturnQuantity) item</strong></MudText>
+                    </div>
+                    <div>
+                        <MudText Typo="Typo.caption" Class="mud-text-secondary">Total Nilai Retur</MudText>
+                        <MudText Typo="Typo.h5" Color="Color.Primary"><strong>@Display.Rupiah(_items.Sum(i => i.Subtotal))</strong></MudText>
+                    </div>
+                    <div class="d-flex align-center gap-2">
+                        <MudButton Variant="Variant.Outlined" Color="Color.Primary" Href="purchase-returns">Batal</MudButton>
+                        <MudButton Variant="Variant.Filled" Color="Color.Primary"
+                                   OnClick="SaveAsync"
+                                   Disabled="@(_saving || _selectedPoId <= 0 || _items.Sum(i => i.ReturnQuantity) <= 0 || !_canManage)">
+                            @if (_saving)
+                            {
+                                <MudProgressCircular Size="Size.Small" Indeterminate="true" Class="mr-2" />
+                                <span>Menyimpan...</span>
+                            }
+                            else
+                            {
+                                <span>Simpan Retur Pembelian</span>
+                            }
+                        </MudButton>
+                    </div>
+                </MudPaper>
+            }
+        </MudPaper>
+    }
+}
+
+@code {
+    [Parameter] public int Id { get; set; }
+    private bool IsNew => Id == 0;
+
+    private bool _loading = true;
+    private bool _saving;
+    private bool _canManage;
+    private readonly List<string> _errors = new();
+
+    // Mode Read-Only
+    private PurchaseReturnDto? _existingReturn;
+
+    // Mode Pembuatan Baru
+    private IReadOnlyList<PurchaseOrderDto> _receivedPos = Array.Empty<PurchaseOrderDto>();
+    private int _selectedPoId;
+    private PurchaseOrderDto? _selectedPo;
+    private DateTime? _returnDate = DateTime.Today;
+    private string _reason = string.Empty;
+    private List<PurchaseReturnLineItem> _items = new();
+
+    public class PurchaseReturnLineItem
+    {
+        public int ProductId { get; set; }
+        public string ProductName { get; set; } = string.Empty;
+        public string? SKU { get; set; }
+        public int ReceivedQuantity { get; set; }
+        public int PreviouslyReturnedQuantity { get; set; }
+        public int RemainingReturnableQuantity => Math.Max(0, ReceivedQuantity - PreviouslyReturnedQuantity);
+        public int WarehouseStock { get; set; }
+        public int MaxReturnableQuantity => Math.Max(0, Math.Min(RemainingReturnableQuantity, WarehouseStock));
+        public decimal UnitPrice { get; set; }
+        public int ReturnQuantity { get; set; }
+        public decimal Subtotal => ReturnQuantity * UnitPrice;
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        var state = await AuthStateProvider.GetAuthenticationStateAsync();
+        _canManage = (await AuthorizationService.AuthorizeAsync(state.User, Policies.ManageTransactions)).Succeeded;
+
+        if (IsNew)
+        {
+            await LoadNewFormDataAsync();
+        }
+        else
+        {
+            await LoadExistingReturnAsync();
+        }
+        _loading = false;
+    }
+
+    private async Task LoadNewFormDataAsync()
+    {
+        var filter = new PurchaseOrderFilterDto { Status = PurchaseOrderStatus.Received };
+        var result = await PurchaseOrderService.GetAllAsync(filter);
+        if (result.IsSuccess)
+        {
+            _receivedPos = result.Value!.Where(p => p.Status == PurchaseOrderStatus.Received).ToList();
+        }
+        else
+        {
+            Snackbar.Add(result.Error ?? "Gagal memuat daftar Purchase Order.", Severity.Error);
+        }
+    }
+
+    private async Task LoadExistingReturnAsync()
+    {
+        var result = await PurchaseReturnService.GetByIdAsync(Id);
+        if (result.IsSuccess)
+        {
+            _existingReturn = result.Value;
+        }
+        else
+        {
+            _errors.Add(result.Error ?? "Retur pembelian tidak ditemukan.");
+        }
+    }
+
+    private async Task OnPoSelectedAsync(int poId)
+    {
+        _selectedPoId = poId;
+        _errors.Clear();
+        _items.Clear();
+        _selectedPo = null;
+
+        if (poId <= 0)
+            return;
+
+        var poResult = await PurchaseOrderService.GetByIdAsync(poId);
+        if (!poResult.IsSuccess || poResult.Value is null)
+        {
+            Snackbar.Add(poResult.Error ?? "Gagal memuat detail Purchase Order.", Severity.Error);
+            return;
+        }
+
+        _selectedPo = poResult.Value;
+
+        // Muat riwayat retur untuk PO ini
+        var returnListResult = await PurchaseReturnService.GetByPurchaseOrderAsync(poId);
+        var previousReturns = returnListResult.IsSuccess ? returnListResult.Value! : Array.Empty<PurchaseReturnDto>();
+
+        var previouslyReturnedMap = previousReturns
+            .SelectMany(r => r.Details)
+            .GroupBy(d => d.ProductId)
+            .ToDictionary(g => g.Key, g => g.Sum(d => d.Quantity));
+
+        // Muat stok fisik gudang saat ini dari ProductService
+        var productsResult = await ProductService.GetAllAsync();
+        var productMap = productsResult.IsSuccess
+            ? productsResult.Value!.ToDictionary(p => p.Id)
+            : new Dictionary<int, ProductDto>();
+
+        _items = _selectedPo.Details.Select(d =>
+        {
+            var prev = previouslyReturnedMap.GetValueOrDefault(d.ProductId, 0);
+            var stock = productMap.TryGetValue(d.ProductId, out var prod) ? prod.Stock : 0;
+            return new PurchaseReturnLineItem
+            {
+                ProductId = d.ProductId,
+                ProductName = d.ProductName,
+                SKU = d.SKU,
+                ReceivedQuantity = d.Quantity,
+                PreviouslyReturnedQuantity = prev,
+                WarehouseStock = stock,
+                UnitPrice = d.UnitPrice,
+                ReturnQuantity = 0,
+            };
+        }).ToList();
+
+        if (_returnDate.HasValue && _returnDate.Value.Date < _selectedPo.OrderDate.Date)
+        {
+            _returnDate = _selectedPo.OrderDate.Date;
+        }
+    }
+
+    private async Task SaveAsync()
+    {
+        if (!_canManage)
+        {
+            Snackbar.Add("Anda tidak memiliki akses untuk membuat retur pembelian.", Severity.Error);
+            return;
+        }
+
+        _errors.Clear();
+
+        if (_selectedPoId <= 0 || _selectedPo is null)
+        {
+            _errors.Add("Nomor Purchase Order wajib dipilih.");
+        }
+        else if (_selectedPo.Status != PurchaseOrderStatus.Received)
+        {
+            _errors.Add("Retur pembelian hanya dapat dilakukan untuk Purchase Order yang sudah diterima.");
+        }
+
+        if (!_returnDate.HasValue)
+        {
+            _errors.Add("Tanggal retur wajib diisi.");
+        }
+        else if (_selectedPo is not null && _returnDate.Value.Date < _selectedPo.OrderDate.Date)
+        {
+            _errors.Add("Tanggal retur tidak boleh sebelum tanggal order.");
+        }
+
+        var linesToReturn = _items.Where(i => i.ReturnQuantity > 0).ToList();
+        if (linesToReturn.Count == 0)
+        {
+            _errors.Add("Retur minimal memiliki 1 item dengan kuantitas lebih dari 0.");
+        }
+
+        foreach (var item in linesToReturn)
+        {
+            if (item.ReturnQuantity > item.RemainingReturnableQuantity)
+            {
+                _errors.Add($"Jumlah retur untuk {item.ProductName} melebihi sisa PO yang dapat diretur (maksimal {item.RemainingReturnableQuantity}).");
+            }
+            if (item.ReturnQuantity > item.WarehouseStock)
+            {
+                _errors.Add($"Stok {item.ProductName} di gudang tidak mencukupi untuk diretur (tersedia {item.WarehouseStock}, diminta {item.ReturnQuantity}).");
+            }
+        }
+
+        if (_errors.Count > 0)
+            return;
+
+        _saving = true;
+
+        var dto = new CreatePurchaseReturnDto
+        {
+            PurchaseOrderId = _selectedPoId,
+            ReturnDate = _returnDate!.Value,
+            Reason = string.IsNullOrWhiteSpace(_reason) ? null : _reason.Trim(),
+            Details = linesToReturn.Select(i => new CreatePurchaseReturnDetailDto
+            {
+                ProductId = i.ProductId,
+                Quantity = i.ReturnQuantity,
+            }).ToList()
+        };
+
+        var result = await PurchaseReturnService.CreateAsync(dto);
+        _saving = false;
+
+        if (result.IsSuccess)
+        {
+            Snackbar.Add($"Retur pembelian {result.Value!.ReturnNumber} berhasil disimpan.", Severity.Success);
+            Navigation.NavigateTo("purchase-returns");
+        }
+        else
+        {
+            _errors.AddRange(result.Errors);
+            Snackbar.Add(result.Error ?? "Gagal menyimpan retur pembelian.", Severity.Error);
+        }
+    }
+}

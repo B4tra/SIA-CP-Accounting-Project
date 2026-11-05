@@ -1,0 +1,128 @@
+@page "/purchase-returns"
+@attribute [Authorize(Policy = Policies.ViewAllData)]
+@using SIA.Application.DTOs.Purchasing
+@using SIA.Application.Services.Purchasing
+@inject IPurchaseReturnService PurchaseReturnService
+@inject ISnackbar Snackbar
+@inject NavigationManager Navigation
+@inject IAuthorizationService AuthorizationService
+@inject AuthenticationStateProvider AuthStateProvider
+
+<PageTitle>Daftar Retur Pembelian - SIA</PageTitle>
+
+<h1 class="sia-page-title">Daftar Retur Pembelian</h1>
+<MudText Typo="Typo.body2" Class="mud-text-secondary">Riwayat pengembalian barang ke pemasok dan pengurangan stok gudang.</MudText>
+
+<MudPaper Outlined="true" Class="sia-card pa-4 mt-6">
+    <div class="d-flex flex-wrap align-center gap-4 mb-4">
+        <MudTextField T="string" @bind-Value="_search" Placeholder="Cari no. retur, no. PO, atau pemasok..."
+                      Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Search"
+                      Immediate="true" DebounceInterval="300" OnDebounceIntervalElapsed="SearchChangedAsync"
+                      Variant="Variant.Outlined" Margin="Margin.Dense" Clearable="true" Class="flex-grow-1" />
+        <MudDatePicker Label="Dari tanggal" Date="_dateFrom" DateChanged="DateFromChangedAsync"
+                       DateFormat="dd/MM/yyyy" Variant="Variant.Outlined" Margin="Margin.Dense" Clearable="true" Style="max-width:170px" />
+        <MudDatePicker Label="Sampai tanggal" Date="_dateTo" DateChanged="DateToChangedAsync"
+                       DateFormat="dd/MM/yyyy" Variant="Variant.Outlined" Margin="Margin.Dense" Clearable="true" Style="max-width:170px" />
+        @if (_canManage)
+        {
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Add"
+                       Href="purchase-returns/new">Retur Pembelian Baru</MudButton>
+        }
+    </div>
+
+    <MudTable Items="_filteredReturns" Loading="_loading" Hover="true" Dense="true" Breakpoint="Breakpoint.Sm"
+              Class="sia-table" Elevation="0">
+        <HeaderContent>
+            <MudTh>No. Retur</MudTh>
+            <MudTh>Tanggal</MudTh>
+            <MudTh>No. PO</MudTh>
+            <MudTh>Pemasok</MudTh>
+            <MudTh Style="text-align:right">Total Nilai</MudTh>
+            <MudTh>Alasan</MudTh>
+            <MudTh>Dibuat Oleh</MudTh>
+            <MudTh Style="text-align:right">Aksi</MudTh>
+        </HeaderContent>
+        <RowTemplate>
+            <MudTd DataLabel="No. Retur">
+                <MudLink Href="@($"purchase-returns/{context.Id}")" Typo="Typo.body2" Underline="Underline.Hover">
+                    <strong>@context.ReturnNumber</strong>
+                </MudLink>
+            </MudTd>
+            <MudTd DataLabel="Tanggal">@Display.Date(context.ReturnDate)</MudTd>
+            <MudTd DataLabel="No. PO">@context.PONumber</MudTd>
+            <MudTd DataLabel="Pemasok">@(context.SupplierName ?? "-")</MudTd>
+            <MudTd DataLabel="Total Nilai" Style="text-align:right">@Display.Rupiah(context.TotalAmount)</MudTd>
+            <MudTd DataLabel="Alasan">@(string.IsNullOrWhiteSpace(context.Reason) ? "-" : context.Reason)</MudTd>
+            <MudTd DataLabel="Dibuat Oleh">@(context.UserName ?? context.UserId)</MudTd>
+            <MudTd DataLabel="Aksi" Style="text-align:right; white-space:nowrap">
+                <MudTooltip Text="Lihat rincian">
+                    <MudIconButton Icon="@Icons.Material.Outlined.Visibility" Size="Size.Small"
+                                   Href="@($"purchase-returns/{context.Id}")" aria-label="Lihat rincian retur" />
+                </MudTooltip>
+            </MudTd>
+        </RowTemplate>
+        <NoRecordsContent>
+            <MudText Typo="Typo.body2">Belum ada data retur pembelian.</MudText>
+        </NoRecordsContent>
+        <LoadingContent>
+            <MudText Typo="Typo.body2">Memuat data...</MudText>
+        </LoadingContent>
+    </MudTable>
+</MudPaper>
+
+@code {
+    private IReadOnlyList<PurchaseReturnDto> _returns = Array.Empty<PurchaseReturnDto>();
+    private string? _search;
+    private DateTime? _dateFrom;
+    private DateTime? _dateTo;
+    private bool _loading = true;
+    private bool _canManage;
+
+    private IEnumerable<PurchaseReturnDto> _filteredReturns =>
+        string.IsNullOrWhiteSpace(_search)
+            ? _returns
+            : _returns.Where(r =>
+                (r.ReturnNumber?.Contains(_search, StringComparison.OrdinalIgnoreCase) ?? false) ||
+                (r.PONumber?.Contains(_search, StringComparison.OrdinalIgnoreCase) ?? false) ||
+                (r.SupplierName?.Contains(_search, StringComparison.OrdinalIgnoreCase) ?? false));
+
+    protected override async Task OnInitializedAsync()
+    {
+        var state = await AuthStateProvider.GetAuthenticationStateAsync();
+        _canManage = (await AuthorizationService.AuthorizeAsync(state.User, Policies.ManageTransactions)).Succeeded;
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        _loading = true;
+        var result = await PurchaseReturnService.GetAllAsync(_dateFrom, _dateTo);
+        if (result.IsSuccess)
+        {
+            _returns = result.Value!;
+        }
+        else
+        {
+            Snackbar.Add(result.Error ?? "Gagal memuat data retur pembelian.", Severity.Error);
+        }
+        _loading = false;
+    }
+
+    private Task SearchChangedAsync(string value)
+    {
+        _search = value;
+        return Task.CompletedTask;
+    }
+
+    private async Task DateFromChangedAsync(DateTime? value)
+    {
+        _dateFrom = value;
+        await LoadAsync();
+    }
+
+    private async Task DateToChangedAsync(DateTime? value)
+    {
+        _dateTo = value;
+        await LoadAsync();
+    }
+}
