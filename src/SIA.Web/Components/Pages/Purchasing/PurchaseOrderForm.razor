@@ -1,0 +1,608 @@
+@page "/purchase-orders/new"
+@page "/purchase-orders/{Id:int}"
+@attribute [Authorize(Policy = Policies.ViewAllData)]
+@using SIA.Application.DTOs.Inventory
+@using SIA.Application.DTOs.Payments
+@using SIA.Application.DTOs.Purchasing
+@using SIA.Application.Services.Inventory
+@using SIA.Application.Services.Payments
+@using SIA.Application.Services.Purchasing
+@inject IPurchaseOrderService PurchaseOrderService
+@inject ISupplierService SupplierService
+@inject IProductService ProductService
+@inject IPaymentService PaymentService
+@inject IDialogService DialogService
+@inject ISnackbar Snackbar
+@inject NavigationManager Navigation
+@inject IAuthorizationService AuthorizationService
+@inject AuthenticationStateProvider AuthStateProvider
+
+<PageTitle>@(IsNew ? "Purchase Order Baru" : $"PO {_existingPo?.PONumber}") - SIA</PageTitle>
+
+<div class="d-flex flex-wrap align-center justify-space-between gap-2">
+    <div>
+        <h1 class="sia-page-title">@(IsNew ? "Purchase Order Baru" : $"Purchase Order {_existingPo?.PONumber}")</h1>
+        <MudText Typo="Typo.body2" Class="mud-text-secondary">
+            @(IsNew
+                ? "Buat pesanan pembelian ke pemasok. Status awal Draft dan stok belum bertambah."
+                : "Rincian dokumen purchase order, status persetujuan, penerimaan gudang, dan pembayaran.")
+        </MudText>
+    </div>
+    <div class="d-flex align-center gap-2">
+        <MudButton Variant="Variant.Outlined" Color="Color.Primary" StartIcon="@Icons.Material.Filled.ArrowBack"
+                   Href="purchase-orders">Kembali ke Daftar</MudButton>
+        @if (!IsNew && _existingPo is not null)
+        {
+            @if (_canApprove && _existingPo.Status == PurchaseOrderStatus.Draft)
+            {
+                <MudButton Variant="Variant.Filled" Color="Color.Info" StartIcon="@Icons.Material.Filled.CheckCircle"
+                           OnClick="ApproveAsync" Disabled="_actionInProgress">Setujui PO</MudButton>
+            }
+            @if (_canManage && _existingPo.Status == PurchaseOrderStatus.Approved)
+            {
+                <MudButton Variant="Variant.Filled" Color="Color.Success" StartIcon="@Icons.Material.Filled.Inventory2"
+                           OnClick="ReceiveAsync" Disabled="_actionInProgress">Terima Barang</MudButton>
+            }
+            @if (_canManage && (_existingPo.Status == PurchaseOrderStatus.Draft || _existingPo.Status == PurchaseOrderStatus.Approved) && _existingPo.PaidAmount == 0)
+            {
+                <MudButton Variant="Variant.Outlined" Color="Color.Error" StartIcon="@Icons.Material.Filled.Cancel"
+                           OnClick="CancelAsync" Disabled="_actionInProgress">Batalkan PO</MudButton>
+            }
+            @if (_canManage && (_existingPo.Status == PurchaseOrderStatus.Approved || _existingPo.Status == PurchaseOrderStatus.Received) && _existingPo.RemainingAmount > 0)
+            {
+                <MudButton Variant="Variant.Filled" Color="Color.Secondary" StartIcon="@Icons.Material.Filled.Payments"
+                           OnClick="RecordPaymentAsync" Disabled="_actionInProgress">Catat Pembayaran</MudButton>
+            }
+        }
+    </div>
+</div>
+
+@if (_errors.Count > 0)
+{
+    <MudAlert Severity="Severity.Error" Variant="Variant.Outlined" Dense="true" Class="mt-4">
+        @foreach (var error in _errors)
+        {
+            <div>@error</div>
+        }
+    </MudAlert>
+}
+
+@if (_loading)
+{
+    <MudPaper Outlined="true" Class="sia-card pa-8 mt-4 d-flex justify-center">
+        <MudProgressCircular Color="Color.Primary" Indeterminate="true" />
+    </MudPaper>
+}
+else if (!IsNew && _existingPo is null)
+{
+    <MudAlert Severity="Severity.Error" Class="mt-4">Purchase Order tidak ditemukan.</MudAlert>
+}
+else
+{
+    <!-- Header Informasi Dokumen -->
+    @if (!IsNew && _existingPo is not null)
+    {
+        <MudPaper Outlined="true" Class="sia-card pa-4 mt-4">
+            <MudGrid Spacing="2">
+                <MudItem xs="12" sm="3">
+                    <MudText Typo="Typo.caption" Class="mud-text-secondary">Nomor PO</MudText>
+                    <MudText Typo="Typo.subtitle1"><strong>@_existingPo.PONumber</strong></MudText>
+                </MudItem>
+                <MudItem xs="12" sm="3">
+                    <MudText Typo="Typo.caption" Class="mud-text-secondary">Status PO</MudText>
+                    <div>
+                        <MudChip T="string" Size="Size.Small" Color="@PoStatusColor(_existingPo.Status)" Variant="Variant.Filled">
+                            @Display.Label(_existingPo.Status)
+                        </MudChip>
+                    </div>
+                </MudItem>
+                <MudItem xs="12" sm="3">
+                    <MudText Typo="Typo.caption" Class="mud-text-secondary">Status Pembayaran</MudText>
+                    <div>
+                        <MudChip T="string" Size="Size.Small" Color="@PaymentStatusColor(_existingPo.PaymentStatus)" Variant="Variant.Filled">
+                            @Display.Label(_existingPo.PaymentStatus)
+                        </MudChip>
+                    </div>
+                </MudItem>
+                <MudItem xs="12" sm="3">
+                    <MudText Typo="Typo.caption" Class="mud-text-secondary">Dibuat Oleh</MudText>
+                    <MudText Typo="Typo.body2">@(_existingPo.UserName ?? _existingPo.UserId)</MudText>
+                    @if (!string.IsNullOrWhiteSpace(_existingPo.ApprovedByUserName))
+                    {
+                        <MudText Typo="Typo.caption" Class="mud-text-secondary mt-1">Disetujui Oleh</MudText>
+                        <MudText Typo="Typo.body2">@_existingPo.ApprovedByUserName</MudText>
+                    }
+                </MudItem>
+            </MudGrid>
+        </MudPaper>
+    }
+
+    <!-- Formulir Entri / Tampilan Detail -->
+    <EditForm Model="_model" OnValidSubmit="SaveAsync">
+        <DataAnnotationsValidator />
+
+        <MudPaper Outlined="true" Class="sia-card pa-4 mt-4">
+            <MudText Typo="Typo.subtitle1" Class="mb-3"><strong>Informasi Pemasok & Tanggal</strong></MudText>
+            <MudGrid Spacing="2">
+                <MudItem xs="12" sm="4">
+                    <MudSelect T="int" @bind-Value="_model.SupplierId" Label="Pemasok" Variant="Variant.Outlined"
+                               Required="true" Disabled="@(!IsEditable)">
+                        <MudSelectItem T="int" Value="0" Disabled="true">-- Pilih pemasok --</MudSelectItem>
+                        @foreach (var s in _suppliers)
+                        {
+                            <MudSelectItem T="int" Value="@s.Id">@s.Name @(string.IsNullOrWhiteSpace(s.Phone) ? "" : $"({s.Phone})")</MudSelectItem>
+                        }
+                    </MudSelect>
+                </MudItem>
+                <MudItem xs="12" sm="4">
+                    <MudDatePicker Label="Tanggal order" @bind-Date="_orderDate" DateFormat="dd/MM/yyyy"
+                                   Variant="Variant.Outlined" Required="true" Disabled="@(!IsEditable)" />
+                </MudItem>
+                <MudItem xs="12" sm="4">
+                    <MudDatePicker Label="Tanggal jatuh tempo" @bind-Date="_dueDate" DateFormat="dd/MM/yyyy"
+                                   Variant="Variant.Outlined" Clearable="true" Disabled="@(!IsEditable)"
+                                   HelperText="Opsional: isi jika pembelian kredit/bertempo" />
+                </MudItem>
+            </MudGrid>
+        </MudPaper>
+
+        <MudPaper Outlined="true" Class="sia-card pa-4 mt-4">
+            <div class="d-flex flex-wrap align-center justify-space-between gap-2 mb-3">
+                <div>
+                    <MudText Typo="Typo.subtitle1"><strong>Item Barang</strong></MudText>
+                    <MudText Typo="Typo.caption" Class="mud-text-secondary">
+                        @(IsNew || IsEditable
+                            ? "Harga satuan terisi otomatis dari harga beli master produk saat produk dipilih."
+                            : "Daftar barang dalam pesanan pembelian ini.")
+                    </MudText>
+                </div>
+                @if (IsEditable)
+                {
+                    <MudButton Variant="Variant.Outlined" Color="Color.Primary" Size="Size.Small"
+                               StartIcon="@Icons.Material.Filled.Add" OnClick="AddLine">Tambah Baris</MudButton>
+                }
+            </div>
+
+            <MudTable Items="_model.Details" Hover="true" Dense="true" Breakpoint="Breakpoint.Sm"
+                      Class="sia-table" Elevation="0">
+                <HeaderContent>
+                    <MudTh Style="min-width:280px">Produk</MudTh>
+                    <MudTh Style="width:110px; text-align:right">Stok Gudang</MudTh>
+                    <MudTh Style="width:130px">Jumlah</MudTh>
+                    <MudTh Style="width:190px">Harga Beli Satuan</MudTh>
+                    <MudTh Style="width:170px; text-align:right">Subtotal</MudTh>
+                    @if (IsEditable)
+                    {
+                        <MudTh Style="width:60px; text-align:right">Aksi</MudTh>
+                    }
+                </HeaderContent>
+                <RowTemplate Context="line">
+                    <MudTd DataLabel="Produk">
+                        @if (IsEditable)
+                        {
+                            <MudSelect T="int" Value="line.ProductId" ValueChanged="id => OnProductChanged(line, id)"
+                                       Placeholder="Pilih produk..." Variant="Variant.Outlined" Margin="Margin.Dense">
+                                <MudSelectItem T="int" Value="0" Disabled="true">-- Pilih produk --</MudSelectItem>
+                                @foreach (var p in _products)
+                                {
+                                    <MudSelectItem T="int" Value="@p.Id">
+                                        @p.Name @(string.IsNullOrWhiteSpace(p.SKU) ? "" : $"[{p.SKU}]")
+                                    </MudSelectItem>
+                                }
+                            </MudSelect>
+                        }
+                        else
+                        {
+                            var prodName = _products.FirstOrDefault(p => p.Id == line.ProductId)?.Name
+                                ?? _existingPo?.Details.FirstOrDefault(d => d.ProductId == line.ProductId)?.ProductName
+                                ?? $"Produk #{line.ProductId}";
+                            <span>@prodName</span>
+                        }
+                    </MudTd>
+                    <MudTd DataLabel="Stok Gudang" Style="text-align:right">
+                        @{
+                            var stock = GetStock(line.ProductId);
+                        }
+                        @if (line.ProductId > 0)
+                        {
+                            <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined" Color="Color.Default">@stock</MudChip>
+                        }
+                        else
+                        {
+                            <span>-</span>
+                        }
+                    </MudTd>
+                    <MudTd DataLabel="Jumlah">
+                        @if (IsEditable)
+                        {
+                            <MudNumericField T="int" @bind-Value="line.Quantity" Min="1" Variant="Variant.Outlined"
+                                             Margin="Margin.Dense" Immediate="true" />
+                        }
+                        else
+                        {
+                            <span>@line.Quantity</span>
+                        }
+                    </MudTd>
+                    <MudTd DataLabel="Harga Beli Satuan">
+                        @if (IsEditable)
+                        {
+                            <MudNumericField T="decimal" @bind-Value="line.UnitPrice" Min="0m" Format="N0"
+                                             Culture="Display.Culture" Adornment="Adornment.Start" AdornmentText="Rp"
+                                             HideSpinButtons="true" Variant="Variant.Outlined" Margin="Margin.Dense"
+                                             Immediate="true" />
+                        }
+                        else
+                        {
+                            <span>@Display.Rupiah(line.UnitPrice)</span>
+                        }
+                    </MudTd>
+                    <MudTd DataLabel="Subtotal" Style="text-align:right">
+                        <strong>@Display.Rupiah(line.Quantity * line.UnitPrice)</strong>
+                    </MudTd>
+                    @if (IsEditable)
+                    {
+                        <MudTd DataLabel="Aksi" Style="text-align:right">
+                            <MudIconButton Icon="@Icons.Material.Outlined.Delete" Size="Size.Small" Color="Color.Error"
+                                           Disabled="@(_model.Details.Count <= 1)"
+                                           OnClick="() => RemoveLine(line)" aria-label="Hapus baris" />
+                        </MudTd>
+                    }
+                </RowTemplate>
+            </MudTable>
+        </MudPaper>
+
+        <MudPaper Outlined="true" Class="sia-card pa-4 mt-4">
+            <MudGrid Spacing="3">
+                <MudItem xs="12" md="6">
+                    <MudTextField @bind-Value="_model.Notes" For="@(() => _model.Notes)" Label="Catatan (opsional)"
+                                  Lines="3" Variant="Variant.Outlined" Disabled="@(!IsEditable)" />
+                </MudItem>
+                <MudItem xs="12" md="6">
+                    <div class="d-flex justify-space-between align-center mb-2">
+                        <MudText Typo="Typo.subtitle1">Total Pembelian</MudText>
+                        <MudText Typo="Typo.h6"><strong>@Display.Rupiah(TotalAmount)</strong></MudText>
+                    </div>
+
+                    @if (!IsNew && _existingPo is not null)
+                    {
+                        <div class="d-flex justify-space-between align-center mb-2">
+                            <MudText Typo="Typo.body2" Class="mud-text-secondary">Sudah Dibayar</MudText>
+                            <MudText Typo="Typo.body2"><strong>@Display.Rupiah(_existingPo.PaidAmount)</strong></MudText>
+                        </div>
+                        <div class="d-flex justify-space-between align-center mb-2">
+                            <MudText Typo="Typo.body2" Class="mud-text-secondary">Sisa Tagihan (Utang)</MudText>
+                            <MudText Typo="Typo.subtitle1" Color="@(_existingPo.RemainingAmount > 0 ? Color.Error : Color.Default)">
+                                <strong>@Display.Rupiah(_existingPo.RemainingAmount)</strong>
+                            </MudText>
+                        </div>
+                    }
+
+                    <div class="d-flex justify-space-between align-center">
+                        <MudText Typo="Typo.body2" Class="mud-text-secondary">Jatuh Tempo</MudText>
+                        @if (_dueDate is not null && _dueDate.Value.Date < DateTime.Today && (!IsNew && _existingPo?.RemainingAmount > 0))
+                        {
+                            <MudText Typo="Typo.body2" Color="Color.Error"><strong>@Display.Date(_dueDate) (Jatuh Tempo)</strong></MudText>
+                        }
+                        else
+                        {
+                            <MudText Typo="Typo.body2">@Display.Date(_dueDate)</MudText>
+                        }
+                    </div>
+                </MudItem>
+            </MudGrid>
+
+            @if (IsEditable)
+            {
+                <MudDivider Class="my-4" />
+                <div class="d-flex justify-end gap-2">
+                    <MudButton Variant="Variant.Text" Href="purchase-orders" Disabled="_saving">Batal</MudButton>
+                    <MudButton ButtonType="ButtonType.Submit" Variant="Variant.Filled" Color="Color.Primary"
+                               StartIcon="@Icons.Material.Filled.Save" Disabled="_saving">
+                        @(_saving ? "Menyimpan..." : (IsNew ? "Simpan Draft PO" : "Simpan Perubahan"))
+                    </MudButton>
+                </div>
+            }
+        </MudPaper>
+    </EditForm>
+
+    <!-- Tabel Riwayat Pembayaran jika dokumen sudah ada -->
+    @if (!IsNew && _existingPo is not null)
+    {
+        <MudPaper Outlined="true" Class="sia-card pa-4 mt-4">
+            <div class="d-flex align-center justify-space-between mb-3">
+                <MudText Typo="Typo.subtitle1"><strong>Riwayat Pembayaran</strong></MudText>
+                @if (_canManage && (_existingPo.Status == PurchaseOrderStatus.Approved || _existingPo.Status == PurchaseOrderStatus.Received) && _existingPo.RemainingAmount > 0)
+                {
+                    <MudButton Variant="Variant.Outlined" Color="Color.Secondary" Size="Size.Small"
+                               StartIcon="@Icons.Material.Filled.Payments" OnClick="RecordPaymentAsync"
+                               Disabled="_actionInProgress">Catat Pembayaran</MudButton>
+                }
+            </div>
+
+            <MudTable Items="_payments" Hover="true" Dense="true" Elevation="0" Class="sia-table">
+                <HeaderContent>
+                    <MudTh>No. Pembayaran</MudTh>
+                    <MudTh>Tanggal</MudTh>
+                    <MudTh>Metode</MudTh>
+                    <MudTh Style="text-align:right">Jumlah</MudTh>
+                    <MudTh>Catatan</MudTh>
+                </HeaderContent>
+                <RowTemplate Context="p">
+                    <MudTd DataLabel="No. Pembayaran">@p.PaymentNumber</MudTd>
+                    <MudTd DataLabel="Tanggal">@Display.Date(p.PaymentDate)</MudTd>
+                    <MudTd DataLabel="Metode">@Display.Label(p.PaymentMethod)</MudTd>
+                    <MudTd DataLabel="Jumlah" Style="text-align:right"><strong>@Display.Rupiah(p.Amount)</strong></MudTd>
+                    <MudTd DataLabel="Catatan">@(string.IsNullOrWhiteSpace(p.Notes) ? "-" : p.Notes)</MudTd>
+                </RowTemplate>
+                <NoRecordsContent>
+                    <MudText Typo="Typo.body2">Belum ada riwayat pembayaran untuk Purchase Order ini.</MudText>
+                </NoRecordsContent>
+            </MudTable>
+        </MudPaper>
+    }
+}
+
+@code {
+    [Parameter] public int Id { get; set; }
+
+    private bool IsNew => Id == 0;
+    private bool IsEditable => IsNew ? _canManage : (_existingPo?.Status == PurchaseOrderStatus.Draft && _canManage);
+
+    private readonly CreatePurchaseOrderDto _model = new()
+    {
+        OrderDate = DateTime.Today,
+        Details = new List<CreatePurchaseOrderDetailDto> { new() { Quantity = 1 } },
+    };
+
+    private PurchaseOrderDto? _existingPo;
+    private IReadOnlyList<SupplierDto> _suppliers = Array.Empty<SupplierDto>();
+    private IReadOnlyList<ProductDto> _products = Array.Empty<ProductDto>();
+    private IReadOnlyList<PaymentDto> _payments = Array.Empty<PaymentDto>();
+
+    private DateTime? _orderDate = DateTime.Today;
+    private DateTime? _dueDate;
+    private List<string> _errors = new();
+    private bool _loading = true;
+    private bool _saving;
+    private bool _actionInProgress;
+    private bool _canManage;
+    private bool _canApprove;
+
+    private decimal TotalAmount => _model.Details.Sum(d => d.Quantity * d.UnitPrice);
+
+    protected override async Task OnInitializedAsync()
+    {
+        var state = await AuthStateProvider.GetAuthenticationStateAsync();
+        _canManage = (await AuthorizationService.AuthorizeAsync(state.User, Policies.ManageTransactions)).Succeeded;
+        _canApprove = (await AuthorizationService.AuthorizeAsync(state.User, Policies.ApprovePurchaseOrder)).Succeeded;
+
+        await LoadMasterDataAsync();
+        await LoadPoDataAsync();
+    }
+
+    private async Task LoadMasterDataAsync()
+    {
+        var supplierResult = await SupplierService.GetAllAsync();
+        if (supplierResult.IsSuccess)
+            _suppliers = supplierResult.Value!;
+
+        var productResult = await ProductService.GetAllAsync();
+        if (productResult.IsSuccess)
+            _products = productResult.Value!;
+    }
+
+    private async Task LoadPoDataAsync()
+    {
+        _loading = true;
+        _errors.Clear();
+
+        if (!IsNew)
+        {
+            var result = await PurchaseOrderService.GetByIdAsync(Id);
+            if (result.IsSuccess)
+            {
+                _existingPo = result.Value!;
+                _model.SupplierId = _existingPo.SupplierId;
+                _model.Notes = _existingPo.Notes;
+                _orderDate = _existingPo.OrderDate;
+                _dueDate = _existingPo.DueDate;
+                _model.Details = _existingPo.Details.Select(d => new CreatePurchaseOrderDetailDto
+                {
+                    ProductId = d.ProductId,
+                    Quantity = d.Quantity,
+                    UnitPrice = d.UnitPrice,
+                }).ToList();
+
+                var payResult = await PaymentService.GetByReferenceAsync(ReferenceType.PurchaseOrder, Id);
+                if (payResult.IsSuccess)
+                    _payments = payResult.Value!;
+            }
+            else
+            {
+                _errors.Add(result.Error!);
+            }
+        }
+        else
+        {
+            _orderDate = DateTime.Today;
+            _dueDate = null;
+        }
+
+        _loading = false;
+    }
+
+    private void OnProductChanged(CreatePurchaseOrderDetailDto line, int productId)
+    {
+        line.ProductId = productId;
+        var product = _products.FirstOrDefault(p => p.Id == productId);
+        if (product is not null)
+            line.UnitPrice = product.PurchasePrice;
+    }
+
+    private int GetStock(int productId) =>
+        _products.FirstOrDefault(p => p.Id == productId)?.Stock ?? 0;
+
+    private void AddLine() =>
+        _model.Details.Add(new CreatePurchaseOrderDetailDto { Quantity = 1 });
+
+    private void RemoveLine(CreatePurchaseOrderDetailDto line)
+    {
+        if (_model.Details.Count > 1)
+            _model.Details.Remove(line);
+    }
+
+    private async Task SaveAsync()
+    {
+        _saving = true;
+        _errors.Clear();
+
+        _model.OrderDate = _orderDate ?? DateTime.Today;
+        _model.DueDate = _dueDate;
+
+        if (IsNew)
+        {
+            var result = await PurchaseOrderService.CreateDraftAsync(_model);
+            _saving = false;
+            if (result.IsSuccess)
+            {
+                Snackbar.Add($"Draft PO {result.Value!.PONumber} berhasil disimpan.", Severity.Success);
+                Navigation.NavigateTo($"purchase-orders/{result.Value.Id}");
+            }
+            else
+            {
+                _errors = result.Errors.ToList();
+            }
+        }
+        else
+        {
+            var updateModel = new UpdatePurchaseOrderDto
+            {
+                Id = Id,
+                OrderDate = _model.OrderDate,
+                DueDate = _model.DueDate,
+                SupplierId = _model.SupplierId,
+                Notes = _model.Notes,
+                Details = _model.Details,
+            };
+            var result = await PurchaseOrderService.UpdateDraftAsync(updateModel);
+            _saving = false;
+            if (result.IsSuccess)
+            {
+                Snackbar.Add($"Purchase Order {result.Value!.PONumber} berhasil diperbarui.", Severity.Success);
+                await LoadPoDataAsync();
+            }
+            else
+            {
+                _errors = result.Errors.ToList();
+            }
+        }
+    }
+
+    private async Task ApproveAsync()
+    {
+        if (_existingPo is null) return;
+        var confirm = await DialogService.ShowMessageBox(
+            "Konfirmasi Persetujuan",
+            $"Setujui Purchase Order {_existingPo.PONumber}? Setelah disetujui, PO siap diterima saat barang tiba di toko/gudang.",
+            yesText: "Setujui", cancelText: "Batal");
+
+        if (confirm == true)
+        {
+            _actionInProgress = true;
+            var result = await PurchaseOrderService.ApproveAsync(_existingPo.Id);
+            _actionInProgress = false;
+
+            if (result.IsSuccess)
+            {
+                Snackbar.Add($"Purchase Order {_existingPo.PONumber} berhasil disetujui.", Severity.Success);
+                await LoadPoDataAsync();
+            }
+            else
+            {
+                Snackbar.Add(result.Error!, Severity.Error);
+            }
+        }
+    }
+
+    private async Task ReceiveAsync()
+    {
+        if (_existingPo is null) return;
+        var confirm = await DialogService.ShowMessageBox(
+            "Konfirmasi Penerimaan Barang",
+            $"Konfirmasi penerimaan barang untuk {_existingPo.PONumber}? Stok fisik produk akan otomatis bertambah dan mutasi tercatat pada kartu stok.",
+            yesText: "Terima Barang", cancelText: "Batal");
+
+        if (confirm == true)
+        {
+            _actionInProgress = true;
+            var result = await PurchaseOrderService.ReceiveAsync(_existingPo.Id);
+            _actionInProgress = false;
+
+            if (result.IsSuccess)
+            {
+                Snackbar.Add($"Barang untuk {_existingPo.PONumber} berhasil diterima. Stok fisik telah bertambah.", Severity.Success);
+                await LoadPoDataAsync();
+            }
+            else
+            {
+                Snackbar.Add(result.Error!, Severity.Error);
+            }
+        }
+    }
+
+    private async Task CancelAsync()
+    {
+        if (_existingPo is null) return;
+        var confirm = await DialogService.ShowMessageBox(
+            "Konfirmasi Pembatalan",
+            $"Batalkan Purchase Order {_existingPo.PONumber}? Tindakan ini tidak dapat dibatalkan.",
+            yesText: "Batalkan PO", cancelText: "Kembali");
+
+        if (confirm == true)
+        {
+            _actionInProgress = true;
+            var result = await PurchaseOrderService.CancelAsync(_existingPo.Id);
+            _actionInProgress = false;
+
+            if (result.IsSuccess)
+            {
+                Snackbar.Add($"Purchase Order {_existingPo.PONumber} berhasil dibatalkan.", Severity.Success);
+                await LoadPoDataAsync();
+            }
+            else
+            {
+                Snackbar.Add(result.Error!, Severity.Error);
+            }
+        }
+    }
+
+    private async Task RecordPaymentAsync()
+    {
+        if (_existingPo is null) return;
+        var parameters = new DialogParameters<PurchaseOrderPaymentDialog> { { x => x.PurchaseOrder, _existingPo } };
+        var options = new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true, CloseOnEscapeKey = true };
+        var dialog = await DialogService.ShowAsync<PurchaseOrderPaymentDialog>("Catat Pembayaran PO", parameters, options);
+        var result = await dialog.Result;
+        if (result is { Canceled: false })
+        {
+            Snackbar.Add("Pembayaran berhasil dicatat.", Severity.Success);
+            await LoadPoDataAsync();
+        }
+    }
+
+    private static Color PoStatusColor(PurchaseOrderStatus status) => status switch
+    {
+        PurchaseOrderStatus.Draft => Color.Default,
+        PurchaseOrderStatus.Approved => Color.Info,
+        PurchaseOrderStatus.Received => Color.Success,
+        PurchaseOrderStatus.Cancelled => Color.Error,
+        _ => Color.Default,
+    };
+
+    private static Color PaymentStatusColor(PaymentStatus status) => status switch
+    {
+        PaymentStatus.Paid => Color.Success,
+        PaymentStatus.PartiallyPaid => Color.Warning,
+        _ => Color.Error,
+    };
+}

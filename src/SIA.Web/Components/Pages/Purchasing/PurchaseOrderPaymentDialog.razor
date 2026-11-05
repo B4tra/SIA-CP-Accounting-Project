@@ -1,0 +1,113 @@
+@using SIA.Application.DTOs.Payments
+@using SIA.Application.DTOs.Purchasing
+@using SIA.Application.Services.Payments
+@inject IPaymentService PaymentService
+
+<EditForm Model="_model" OnValidSubmit="SubmitAsync">
+    <DataAnnotationsValidator />
+    <MudDialog>
+        <DialogContent>
+            @if (_errors.Count > 0)
+            {
+                <MudAlert Severity="Severity.Error" Variant="Variant.Outlined" Dense="true" Class="mb-4">
+                    @foreach (var error in _errors)
+                    {
+                        <div>@error</div>
+                    }
+                </MudAlert>
+            }
+
+            <MudPaper Outlined="true" Class="pa-3 mb-4">
+                <div class="d-flex justify-space-between">
+                    <MudText Typo="Typo.body2" Class="mud-text-secondary">No. PO</MudText>
+                    <MudText Typo="Typo.body2"><strong>@PurchaseOrder.PONumber</strong></MudText>
+                </div>
+                <div class="d-flex justify-space-between mt-1">
+                    <MudText Typo="Typo.body2" Class="mud-text-secondary">Pemasok</MudText>
+                    <MudText Typo="Typo.body2">@PurchaseOrder.SupplierName</MudText>
+                </div>
+                <div class="d-flex justify-space-between mt-1">
+                    <MudText Typo="Typo.body2" Class="mud-text-secondary">Total Tagihan</MudText>
+                    <MudText Typo="Typo.body2">@Display.Rupiah(PurchaseOrder.TotalAmount)</MudText>
+                </div>
+                <div class="d-flex justify-space-between mt-1">
+                    <MudText Typo="Typo.body2" Class="mud-text-secondary">Sudah Dibayar</MudText>
+                    <MudText Typo="Typo.body2">@Display.Rupiah(PurchaseOrder.PaidAmount)</MudText>
+                </div>
+                <MudDivider Class="my-2" />
+                <div class="d-flex justify-space-between">
+                    <MudText Typo="Typo.subtitle2">Sisa Tagihan</MudText>
+                    <MudText Typo="Typo.subtitle2" Color="Color.Error">@Display.Rupiah(PurchaseOrder.RemainingAmount)</MudText>
+                </div>
+            </MudPaper>
+
+            <MudGrid Spacing="2">
+                <MudItem xs="12" sm="6">
+                    <MudDatePicker Label="Tanggal pembayaran" @bind-Date="_paymentDate" DateFormat="dd/MM/yyyy"
+                                   Variant="Variant.Outlined" Required="true" />
+                </MudItem>
+                <MudItem xs="12" sm="6">
+                    <MudSelect T="PaymentMethod" @bind-Value="_model.PaymentMethod" Label="Metode pembayaran" Variant="Variant.Outlined">
+                        @foreach (var method in Enum.GetValues<PaymentMethod>())
+                        {
+                            <MudSelectItem T="PaymentMethod" Value="@method">@Display.Label(method)</MudSelectItem>
+                        }
+                    </MudSelect>
+                </MudItem>
+                <MudItem xs="12">
+                    <MudNumericField @bind-Value="_model.Amount" For="@(() => _model.Amount)" Label="Jumlah pembayaran"
+                                     Min="0.01m" Max="@PurchaseOrder.RemainingAmount" Format="N0" Culture="Display.Culture"
+                                     Adornment="Adornment.Start" AdornmentText="Rp" HideSpinButtons="true"
+                                     Variant="Variant.Outlined" Required="true" />
+                </MudItem>
+                <MudItem xs="12">
+                    <MudTextField @bind-Value="_model.Notes" For="@(() => _model.Notes)" Label="Catatan (opsional)"
+                                  Lines="2" Variant="Variant.Outlined" />
+                </MudItem>
+            </MudGrid>
+        </DialogContent>
+        <DialogActions>
+            <MudButton OnClick="Cancel" Disabled="_saving">Batal</MudButton>
+            <MudButton ButtonType="ButtonType.Submit" Variant="Variant.Filled" Color="Color.Primary" Disabled="_saving">
+                @(_saving ? "Menyimpan..." : "Simpan Pembayaran")
+            </MudButton>
+        </DialogActions>
+    </MudDialog>
+</EditForm>
+
+@code {
+    [CascadingParameter] private IMudDialogInstance MudDialog { get; set; } = default!;
+
+    [Parameter] public PurchaseOrderDto PurchaseOrder { get; set; } = new();
+
+    private readonly CreatePaymentDto _model = new();
+    private DateTime? _paymentDate = DateTime.Today;
+    private List<string> _errors = new();
+    private bool _saving;
+
+    protected override void OnParametersSet()
+    {
+        _model.ReferenceType = ReferenceType.PurchaseOrder;
+        _model.ReferenceId = PurchaseOrder.Id;
+        _model.PaymentMethod = PaymentMethod.Transfer;
+        _model.Amount = PurchaseOrder.RemainingAmount;
+        _paymentDate = DateTime.Today < PurchaseOrder.OrderDate.Date ? PurchaseOrder.OrderDate.Date : DateTime.Today;
+    }
+
+    private async Task SubmitAsync()
+    {
+        _saving = true;
+        _errors.Clear();
+
+        _model.PaymentDate = _paymentDate ?? DateTime.Today;
+        var result = await PaymentService.CreateAsync(_model);
+
+        _saving = false;
+        if (result.IsSuccess)
+            MudDialog.Close(DialogResult.Ok(result.Value));
+        else
+            _errors = result.Errors.ToList();
+    }
+
+    private void Cancel() => MudDialog.Cancel();
+}

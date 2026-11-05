@@ -1,0 +1,291 @@
+@page "/purchase-orders"
+@attribute [Authorize(Policy = Policies.ViewAllData)]
+@using SIA.Application.DTOs.Purchasing
+@using SIA.Application.Services.Purchasing
+@inject IPurchaseOrderService PurchaseOrderService
+@inject IDialogService DialogService
+@inject ISnackbar Snackbar
+@inject NavigationManager Navigation
+@inject IAuthorizationService AuthorizationService
+@inject AuthenticationStateProvider AuthStateProvider
+
+<PageTitle>Daftar Purchase Order - SIA</PageTitle>
+
+<h1 class="sia-page-title">Daftar Purchase Order</h1>
+<MudText Typo="Typo.body2" Class="mud-text-secondary">Pesanan pembelian ke pemasok, status penerimaan barang, dan utang usaha.</MudText>
+
+<MudPaper Outlined="true" Class="sia-card pa-4 mt-6">
+    <div class="d-flex flex-wrap align-center gap-4 mb-4">
+        <MudTextField T="string" @bind-Value="_filter.Search" Placeholder="Cari no. PO atau pemasok..."
+                      Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Search"
+                      Immediate="true" DebounceInterval="300" OnDebounceIntervalElapsed="SearchAsync"
+                      Variant="Variant.Outlined" Margin="Margin.Dense" Clearable="true" Class="flex-grow-1" />
+        <MudDatePicker Label="Dari tanggal" Date="_filter.DateFrom" DateChanged="DateFromChangedAsync"
+                       DateFormat="dd/MM/yyyy" Variant="Variant.Outlined" Margin="Margin.Dense" Clearable="true" Style="max-width:170px" />
+        <MudDatePicker Label="Sampai tanggal" Date="_filter.DateTo" DateChanged="DateToChangedAsync"
+                       DateFormat="dd/MM/yyyy" Variant="Variant.Outlined" Margin="Margin.Dense" Clearable="true" Style="max-width:170px" />
+        <MudSelect T="PurchaseOrderStatus?" Label="Status PO" Value="_filter.Status" ValueChanged="StatusChangedAsync"
+                    Variant="Variant.Outlined" Margin="Margin.Dense" Clearable="true" Style="max-width:180px">
+            @foreach (var status in Enum.GetValues<PurchaseOrderStatus>())
+            {
+                <MudSelectItem T="PurchaseOrderStatus?" Value="@status">@Display.Label(status)</MudSelectItem>
+            }
+        </MudSelect>
+        <MudSelect T="PaymentStatus?" Label="Status Bayar" Value="_filter.PaymentStatus" ValueChanged="PaymentStatusChangedAsync"
+                    Variant="Variant.Outlined" Margin="Margin.Dense" Clearable="true" Style="max-width:180px">
+            @foreach (var pStatus in Enum.GetValues<PaymentStatus>())
+            {
+                <MudSelectItem T="PaymentStatus?" Value="@pStatus">@Display.Label(pStatus)</MudSelectItem>
+            }
+        </MudSelect>
+        @if (_canManage)
+        {
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Add"
+                       Href="purchase-orders/new">PO Baru</MudButton>
+        }
+    </div>
+
+    <MudTable Items="_orders" Loading="_loading" Hover="true" Dense="true" Breakpoint="Breakpoint.Sm"
+              Class="sia-table" Elevation="0">
+        <HeaderContent>
+            <MudTh>No. PO</MudTh>
+            <MudTh>Tanggal</MudTh>
+            <MudTh>Pemasok</MudTh>
+            <MudTh Style="text-align:right">Total</MudTh>
+            <MudTh Style="text-align:right">Dibayar</MudTh>
+            <MudTh Style="text-align:right">Sisa</MudTh>
+            <MudTh>Jatuh Tempo</MudTh>
+            <MudTh>Status PO</MudTh>
+            <MudTh>Status Bayar</MudTh>
+            <MudTh Style="text-align:right">Aksi</MudTh>
+        </HeaderContent>
+        <RowTemplate>
+            <MudTd DataLabel="No. PO">@context.PONumber</MudTd>
+            <MudTd DataLabel="Tanggal">@Display.Date(context.OrderDate)</MudTd>
+            <MudTd DataLabel="Pemasok">@context.SupplierName</MudTd>
+            <MudTd DataLabel="Total" Style="text-align:right">@Display.Rupiah(context.TotalAmount)</MudTd>
+            <MudTd DataLabel="Dibayar" Style="text-align:right">@Display.Rupiah(context.PaidAmount)</MudTd>
+            <MudTd DataLabel="Sisa" Style="text-align:right">@Display.Rupiah(context.RemainingAmount)</MudTd>
+            <MudTd DataLabel="Jatuh Tempo">
+                @if (IsOverdue(context))
+                {
+                    <MudText Typo="Typo.body2" Color="Color.Error">@Display.Date(context.DueDate)</MudText>
+                }
+                else
+                {
+                    @Display.Date(context.DueDate)
+                }
+            </MudTd>
+            <MudTd DataLabel="Status PO">
+                <MudChip T="string" Size="Size.Small" Color="@PoStatusColor(context.Status)" Variant="Variant.Filled">
+                    @Display.Label(context.Status)
+                </MudChip>
+            </MudTd>
+            <MudTd DataLabel="Status Bayar">
+                <MudChip T="string" Size="Size.Small" Color="@PaymentStatusColor(context.PaymentStatus)" Variant="Variant.Filled">
+                    @Display.Label(context.PaymentStatus)
+                </MudChip>
+            </MudTd>
+            <MudTd DataLabel="Aksi" Style="text-align:right; white-space:nowrap">
+                <MudTooltip Text="@(context.Status == PurchaseOrderStatus.Draft && _canManage ? "Ubah draft" : "Lihat rincian")">
+                    <MudIconButton Icon="@(context.Status == PurchaseOrderStatus.Draft && _canManage ? Icons.Material.Outlined.Edit : Icons.Material.Outlined.Visibility)"
+                                   Size="Size.Small" Href="@($"purchase-orders/{context.Id}")"
+                                   aria-label="Lihat atau ubah PO" />
+                </MudTooltip>
+
+                @if (_canApprove && context.Status == PurchaseOrderStatus.Draft)
+                {
+                    <MudTooltip Text="Setujui PO">
+                        <MudIconButton Icon="@Icons.Material.Outlined.CheckCircle" Size="Size.Small" Color="Color.Info"
+                                       OnClick="() => ApproveAsync(context)" aria-label="Setujui PO" />
+                    </MudTooltip>
+                }
+
+                @if (_canManage && context.Status == PurchaseOrderStatus.Approved)
+                {
+                    <MudTooltip Text="Terima Barang">
+                        <MudIconButton Icon="@Icons.Material.Outlined.Inventory2" Size="Size.Small" Color="Color.Success"
+                                       OnClick="() => ReceiveAsync(context)" aria-label="Terima barang" />
+                    </MudTooltip>
+                }
+
+                @if (_canManage && (context.Status == PurchaseOrderStatus.Draft || context.Status == PurchaseOrderStatus.Approved) && context.PaidAmount == 0)
+                {
+                    <MudTooltip Text="Batalkan PO">
+                        <MudIconButton Icon="@Icons.Material.Outlined.Cancel" Size="Size.Small" Color="Color.Error"
+                                       OnClick="() => CancelAsync(context)" aria-label="Batalkan PO" />
+                    </MudTooltip>
+                }
+
+                @if (_canManage && (context.Status == PurchaseOrderStatus.Approved || context.Status == PurchaseOrderStatus.Received) && context.RemainingAmount > 0)
+                {
+                    <MudTooltip Text="Catat Pembayaran">
+                        <MudIconButton Icon="@Icons.Material.Outlined.Payments" Size="Size.Small" Color="Color.Secondary"
+                                       OnClick="() => RecordPaymentAsync(context)" aria-label="Catat pembayaran" />
+                    </MudTooltip>
+                }
+            </MudTd>
+        </RowTemplate>
+        <NoRecordsContent>
+            <MudText Typo="Typo.body2">Belum ada data Purchase Order.</MudText>
+        </NoRecordsContent>
+        <LoadingContent>
+            <MudText Typo="Typo.body2">Memuat data...</MudText>
+        </LoadingContent>
+    </MudTable>
+</MudPaper>
+
+@code {
+    private IReadOnlyList<PurchaseOrderDto> _orders = Array.Empty<PurchaseOrderDto>();
+    private readonly PurchaseOrderFilterDto _filter = new();
+    private bool _loading = true;
+    private bool _canManage;
+    private bool _canApprove;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var state = await AuthStateProvider.GetAuthenticationStateAsync();
+        _canManage = (await AuthorizationService.AuthorizeAsync(state.User, Policies.ManageTransactions)).Succeeded;
+        _canApprove = (await AuthorizationService.AuthorizeAsync(state.User, Policies.ApprovePurchaseOrder)).Succeeded;
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        _loading = true;
+        var result = await PurchaseOrderService.GetAllAsync(_filter);
+        if (result.IsSuccess)
+            _orders = result.Value!;
+        else
+            Snackbar.Add(result.Error!, Severity.Error);
+        _loading = false;
+    }
+
+    private async Task SearchAsync(string value)
+    {
+        _filter.Search = value;
+        await LoadAsync();
+    }
+
+    private async Task DateFromChangedAsync(DateTime? value)
+    {
+        _filter.DateFrom = value;
+        await LoadAsync();
+    }
+
+    private async Task DateToChangedAsync(DateTime? value)
+    {
+        _filter.DateTo = value;
+        await LoadAsync();
+    }
+
+    private async Task StatusChangedAsync(PurchaseOrderStatus? value)
+    {
+        _filter.Status = value;
+        await LoadAsync();
+    }
+
+    private async Task PaymentStatusChangedAsync(PaymentStatus? value)
+    {
+        _filter.PaymentStatus = value;
+        await LoadAsync();
+    }
+
+    private async Task ApproveAsync(PurchaseOrderDto po)
+    {
+        var confirm = await DialogService.ShowMessageBox(
+            "Konfirmasi Persetujuan",
+            $"Setujui Purchase Order {po.PONumber}? Setelah disetujui, barang dapat diterima saat tiba di gudang.",
+            yesText: "Setujui", cancelText: "Batal");
+
+        if (confirm == true)
+        {
+            var result = await PurchaseOrderService.ApproveAsync(po.Id);
+            if (result.IsSuccess)
+            {
+                Snackbar.Add($"Purchase Order {po.PONumber} berhasil disetujui.", Severity.Success);
+                await LoadAsync();
+            }
+            else
+            {
+                Snackbar.Add(result.Error!, Severity.Error);
+            }
+        }
+    }
+
+    private async Task ReceiveAsync(PurchaseOrderDto po)
+    {
+        var confirm = await DialogService.ShowMessageBox(
+            "Konfirmasi Penerimaan Barang",
+            $"Konfirmasi penerimaan barang untuk {po.PONumber}? Stok fisik produk akan bertambah otomatis dan mutasi tercatat pada kartu stok.",
+            yesText: "Terima Barang", cancelText: "Batal");
+
+        if (confirm == true)
+        {
+            var result = await PurchaseOrderService.ReceiveAsync(po.Id);
+            if (result.IsSuccess)
+            {
+                Snackbar.Add($"Barang untuk {po.PONumber} berhasil diterima. Stok telah diperbarui.", Severity.Success);
+                await LoadAsync();
+            }
+            else
+            {
+                Snackbar.Add(result.Error!, Severity.Error);
+            }
+        }
+    }
+
+    private async Task CancelAsync(PurchaseOrderDto po)
+    {
+        var confirm = await DialogService.ShowMessageBox(
+            "Konfirmasi Pembatalan",
+            $"Batalkan Purchase Order {po.PONumber}? Tindakan ini tidak dapat dibatalkan.",
+            yesText: "Batalkan PO", cancelText: "Kembali");
+
+        if (confirm == true)
+        {
+            var result = await PurchaseOrderService.CancelAsync(po.Id);
+            if (result.IsSuccess)
+            {
+                Snackbar.Add($"Purchase Order {po.PONumber} berhasil dibatalkan.", Severity.Success);
+                await LoadAsync();
+            }
+            else
+            {
+                Snackbar.Add(result.Error!, Severity.Error);
+            }
+        }
+    }
+
+    private async Task RecordPaymentAsync(PurchaseOrderDto po)
+    {
+        var parameters = new DialogParameters<PurchaseOrderPaymentDialog> { { x => x.PurchaseOrder, po } };
+        var options = new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true, CloseOnEscapeKey = true };
+        var dialog = await DialogService.ShowAsync<PurchaseOrderPaymentDialog>("Catat Pembayaran PO", parameters, options);
+        var result = await dialog.Result;
+        if (result is { Canceled: false })
+        {
+            Snackbar.Add("Pembayaran berhasil dicatat.", Severity.Success);
+            await LoadAsync();
+        }
+    }
+
+    private static bool IsOverdue(PurchaseOrderDto po) =>
+        po.RemainingAmount > 0 && po.DueDate is not null && po.DueDate.Value.Date < DateTime.Today;
+
+    private static Color PoStatusColor(PurchaseOrderStatus status) => status switch
+    {
+        PurchaseOrderStatus.Draft => Color.Default,
+        PurchaseOrderStatus.Approved => Color.Info,
+        PurchaseOrderStatus.Received => Color.Success,
+        PurchaseOrderStatus.Cancelled => Color.Error,
+        _ => Color.Default,
+    };
+
+    private static Color PaymentStatusColor(PaymentStatus status) => status switch
+    {
+        PaymentStatus.Paid => Color.Success,
+        PaymentStatus.PartiallyPaid => Color.Warning,
+        _ => Color.Error,
+    };
+}

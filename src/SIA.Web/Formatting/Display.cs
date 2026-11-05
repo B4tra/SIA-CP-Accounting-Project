@@ -59,6 +59,15 @@ public static class Display
         _ => status.ToString(),
     };
 
+    public static string Label(PurchaseOrderStatus status) => status switch
+    {
+        PurchaseOrderStatus.Draft => "Draft",
+        PurchaseOrderStatus.Approved => "Disetujui",
+        PurchaseOrderStatus.Received => "Diterima",
+        PurchaseOrderStatus.Cancelled => "Dibatalkan",
+        _ => status.ToString(),
+    };
+
     public static string Label(PaymentMethod method) => method switch
     {
         PaymentMethod.Cash => "Tunai",

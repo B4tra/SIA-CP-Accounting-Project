@@ -55,8 +55,9 @@ public static class DependencyInjection
         services.AddScoped<ICustomerService, CustomerService>();
         services.AddScoped<ISupplierService, SupplierService>();
 
-        // Service aplikasi (Tahap penjualan & pembayaran)
+        // Service aplikasi (Tahap penjualan, pembelian & pembayaran)
         services.AddScoped<ISaleService, SaleService>();
+        services.AddScoped<IPurchaseOrderService, PurchaseOrderService>();
         services.AddScoped<IPaymentService, PaymentService>();
 
         // Identity: user, role, store EF Core. SignInManager & cookie didaftarkan di layer Web.
