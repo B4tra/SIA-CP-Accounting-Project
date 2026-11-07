@@ -1,0 +1,211 @@
+@using SIA.Application.DTOs.Accounting
+@using SIA.Application.Services.Accounting
+@inject IJournalService JournalService
+@inject IAccountService AccountService
+@inject ISnackbar Snackbar
+
+<MudDialog>
+    <DialogContent>
+        @if (_errors.Count > 0)
+        {
+            <MudAlert Severity="Severity.Error" Variant="Variant.Outlined" Dense="true" Class="mb-3">
+                @foreach (var error in _errors)
+                {
+                    <div>@error</div>
+                }
+            </MudAlert>
+        }
+
+        <MudGrid Spacing="2">
+            <MudItem xs="12" sm="4">
+                <MudDatePicker Label="Tanggal Transaksi" Date="_transactionDate" DateChanged="OnDateChanged"
+                               DateFormat="dd/MM/yyyy" Variant="Variant.Outlined" Margin="Margin.Dense" Required="true" />
+            </MudItem>
+            <MudItem xs="12" sm="8">
+                <MudTextField @bind-Value="_model.Description" Label="Keterangan Jurnal" Placeholder="mis. Setoran modal awal atau pembelian perlengkapan"
+                              Variant="Variant.Outlined" Margin="Margin.Dense" Required="true" Counter="255" MaxLength="255" />
+            </MudItem>
+        </MudGrid>
+
+        <div class="d-flex justify-space-between align-center mb-2 mt-4">
+            <MudText Typo="Typo.subtitle2"><strong>Baris Jurnal (Debit & Kredit)</strong></MudText>
+            <MudButton Variant="Variant.Outlined" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Add"
+                       Size="Size.Small" OnClick="AddLine">Tambah Baris</MudButton>
+        </div>
+
+        <MudSimpleTable Dense="true" Bordered="true" Class="sia-table mb-4">
+            <thead>
+                <tr>
+                    <th>Akun</th>
+                    <th style="width:200px">Debit</th>
+                    <th style="width:200px">Kredit</th>
+                    <th style="width:60px; text-align:center">Aksi</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var line in _model.Lines)
+                {
+                    <tr>
+                        <td>
+                            <MudSelect T="int" Value="@line.AccountId" ValueChanged="@((int val) => line.AccountId = val)"
+                                       Placeholder="Pilih akun..." Variant="Variant.Outlined" Margin="Margin.Dense" Dense="true">
+                                @foreach (var acc in _accounts)
+                                {
+                                    <MudSelectItem T="int" Value="@acc.Id">@acc.Code - @acc.Name</MudSelectItem>
+                                }
+                            </MudSelect>
+                        </td>
+                        <td>
+                            <MudNumericField T="decimal" Value="@line.Debit" ValueChanged="@((decimal val) => OnDebitChanged(line, val))"
+                                             Min="0" Format="N0" Culture="Display.Culture" Variant="Variant.Outlined" Margin="Margin.Dense" HideSpinButtons="true" />
+                        </td>
+                        <td>
+                            <MudNumericField T="decimal" Value="@line.Credit" ValueChanged="@((decimal val) => OnCreditChanged(line, val))"
+                                             Min="0" Format="N0" Culture="Display.Culture" Variant="Variant.Outlined" Margin="Margin.Dense" HideSpinButtons="true" />
+                        </td>
+                        <td style="text-align:center">
+                            <MudIconButton Icon="@Icons.Material.Outlined.Delete" Size="Size.Small" Color="Color.Error"
+                                           OnClick="() => RemoveLine(line)" Disabled="@(_model.Lines.Count <= 2)"
+                                           aria-label="Hapus baris" />
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </MudSimpleTable>
+
+        <div class="d-flex flex-wrap justify-space-between align-center pa-3 mb-2" style="background-color: var(--mud-palette-background-gray); border-radius: var(--mud-default-borderradius);">
+            <div class="d-flex align-center gap-6">
+                <div>
+                    <MudText Typo="Typo.caption" Class="mud-text-secondary">TOTAL DEBIT</MudText>
+                    <MudText Typo="Typo.subtitle1"><strong>@Display.Rupiah(TotalDebit)</strong></MudText>
+                </div>
+                <div>
+                    <MudText Typo="Typo.caption" Class="mud-text-secondary">TOTAL KREDIT</MudText>
+                    <MudText Typo="Typo.subtitle1"><strong>@Display.Rupiah(TotalCredit)</strong></MudText>
+                </div>
+            </div>
+            <div>
+                @if (IsBalanced)
+                {
+                    <MudChip T="string" Color="Color.Success" Variant="Variant.Filled" Icon="@Icons.Material.Filled.CheckCircle">
+                        Seimbang (@Display.Rupiah(TotalDebit))
+                    </MudChip>
+                }
+                else
+                {
+                    <MudChip T="string" Color="Color.Error" Variant="Variant.Filled" Icon="@Icons.Material.Filled.Warning">
+                        Selisih: @Display.Rupiah(Difference)
+                    </MudChip>
+                }
+            </div>
+        </div>
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="Cancel" Disabled="_saving">Batal</MudButton>
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="SubmitAsync" Disabled="@(!CanSave)">
+            @(_saving ? "Menyimpan..." : "Simpan Jurnal")
+        </MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] private IMudDialogInstance MudDialog { get; set; } = default!;
+
+    private readonly CreateJournalEntryDto _model = new()
+    {
+        TransactionDate = DateTime.Today,
+        Description = string.Empty,
+        Lines = new()
+        {
+            new CreateJournalEntryLineDto(),
+            new CreateJournalEntryLineDto()
+        }
+    };
+
+    private DateTime? _transactionDate = DateTime.Today;
+    private IReadOnlyList<AccountDto> _accounts = Array.Empty<AccountDto>();
+    private List<string> _errors = new();
+    private bool _saving;
+
+    private decimal TotalDebit => _model.Lines.Sum(l => l.Debit);
+    private decimal TotalCredit => _model.Lines.Sum(l => l.Credit);
+    private decimal Difference => Math.Abs(TotalDebit - TotalCredit);
+    private bool IsBalanced => TotalDebit == TotalCredit && TotalDebit > 0;
+
+    private bool CanSave => !_saving
+        && IsBalanced
+        && _model.Lines.Count >= 2
+        && !string.IsNullOrWhiteSpace(_model.Description)
+        && _model.Lines.All(l => l.AccountId > 0 && ((l.Debit > 0 && l.Credit == 0) || (l.Credit > 0 && l.Debit == 0)));
+
+    protected override async Task OnInitializedAsync()
+    {
+        var result = await AccountService.GetAllAsync(includeInactive: false);
+        if (result.IsSuccess)
+        {
+            _accounts = result.Value!;
+        }
+    }
+
+    private void OnDateChanged(DateTime? date)
+    {
+        _transactionDate = date;
+        if (date.HasValue)
+        {
+            _model.TransactionDate = date.Value;
+        }
+    }
+
+    private void OnDebitChanged(CreateJournalEntryLineDto line, decimal val)
+    {
+        line.Debit = val;
+        if (val > 0)
+        {
+            line.Credit = 0;
+        }
+    }
+
+    private void OnCreditChanged(CreateJournalEntryLineDto line, decimal val)
+    {
+        line.Credit = val;
+        if (val > 0)
+        {
+            line.Debit = 0;
+        }
+    }
+
+    private void AddLine()
+    {
+        _model.Lines.Add(new CreateJournalEntryLineDto());
+    }
+
+    private void RemoveLine(CreateJournalEntryLineDto line)
+    {
+        if (_model.Lines.Count > 2)
+        {
+            _model.Lines.Remove(line);
+        }
+    }
+
+    private async Task SubmitAsync()
+    {
+        if (!CanSave) return;
+
+        _saving = true;
+        _errors.Clear();
+
+        var result = await JournalService.CreateAsync(_model);
+        _saving = false;
+
+        if (result.IsSuccess)
+        {
+            MudDialog.Close(DialogResult.Ok(result.Value));
+        }
+        else
+        {
+            _errors = result.Errors.ToList();
+        }
+    }
+
+    private void Cancel() => MudDialog.Cancel();
+}

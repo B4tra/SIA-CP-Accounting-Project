@@ -1,0 +1,189 @@
+@page "/admin/transaction-numbers"
+@attribute [Authorize(Policy = Policies.RequireAdmin)]
+
+@using System.Globalization
+@using System.Text.RegularExpressions
+@using Microsoft.AspNetCore.Authorization
+@using SIA.Application.Common.Constants
+@using SIA.Application.DTOs.System
+@using SIA.Application.Services.Accounting
+@using SIA.Application.Services.System
+@inject ITransactionNumberService TransactionNumberService
+@inject IAccountService AccountService
+@inject IDialogService DialogService
+@inject ISnackbar Snackbar
+
+<PageTitle>Konfigurasi Nomor Transaksi - SIA</PageTitle>
+
+<div class="d-flex flex-wrap align-center justify-space-between gap-2">
+    <div>
+        <h1 class="sia-page-title">Konfigurasi Nomor Transaksi</h1>
+        <MudText Typo="Typo.body2" Class="mud-text-secondary">
+            Atur prefix dan format penomoran otomatis transaksi sistem serta pemeliharaan saldo akun.
+        </MudText>
+    </div>
+</div>
+
+<MudPaper Outlined="true" Class="sia-card pa-4 mt-6">
+    <MudText Typo="Typo.h6" Class="mb-3">Daftar Format Penomoran</MudText>
+
+    <MudTable Items="_configs" Loading="_loading" Hover="true" Dense="true" Class="sia-table" Elevation="0">
+        <HeaderContent>
+            <MudTh>Jenis Transaksi</MudTh>
+            <MudTh>Prefix</MudTh>
+            <MudTh>Format</MudTh>
+            <MudTh>Tahun Berjalan</MudTh>
+            <MudTh>Nomor Terakhir</MudTh>
+            <MudTh>Contoh Berikutnya</MudTh>
+            <MudTh Style="text-align: right;">Aksi</MudTh>
+        </HeaderContent>
+        <RowTemplate>
+            <MudTd DataLabel="Jenis Transaksi">
+                <strong>@GetTransactionTypeLabel(context.TransactionType)</strong>
+            </MudTd>
+            <MudTd DataLabel="Prefix">
+                <code>@context.Prefix</code>
+            </MudTd>
+            <MudTd DataLabel="Format">
+                <code>@context.Format</code>
+            </MudTd>
+            <MudTd DataLabel="Tahun Berjalan">@context.Year</MudTd>
+            <MudTd DataLabel="Nomor Terakhir">@context.CurrentSequence</MudTd>
+            <MudTd DataLabel="Contoh Berikutnya">
+                <code>@RenderNextSample(context)</code>
+            </MudTd>
+            <MudTd DataLabel="Aksi" Style="text-align: right;">
+                <MudTooltip Text="Ubah Prefix & Format">
+                    <MudIconButton Icon="@Icons.Material.Outlined.Edit" Size="Size.Small" OnClick="() => OpenEditDialogAsync(context)" />
+                </MudTooltip>
+            </MudTd>
+        </RowTemplate>
+        <NoRecordsContent>
+            <MudText Class="pa-4 text-center">Tidak ada konfigurasi nomor transaksi.</MudText>
+        </NoRecordsContent>
+        <LoadingContent>
+            <MudText Class="pa-4 text-center">Memuat konfigurasi nomor transaksi...</MudText>
+        </LoadingContent>
+    </MudTable>
+</MudPaper>
+
+<MudPaper Outlined="true" Class="sia-card pa-4 mt-6">
+    <div class="d-flex flex-wrap align-center justify-space-between gap-4">
+        <div>
+            <MudText Typo="Typo.h6">Pemeliharaan: Rekalkulasi Saldo Akun</MudText>
+            <MudText Typo="Typo.body2" Class="mud-text-secondary mt-1">
+                Hitung ulang saldo seluruh akun dari akumulasi baris jurnal umum (SUM JournalEntryLine).
+                Gunakan fitur ini jika terdeteksi selisih atau inkonsistensi saldo.
+            </MudText>
+        </div>
+        <MudButton Variant="Variant.Filled" Color="Color.Primary"
+                   StartIcon="@Icons.Material.Filled.Calculate"
+                   Disabled="_recalculating"
+                   OnClick="RecalculateBalancesAsync">
+            @(_recalculating ? "Menghitung Ulang..." : "Rekalkulasi Saldo Akun")
+        </MudButton>
+    </div>
+</MudPaper>
+
+@code {
+    private List<TransactionNumberConfigDto> _configs = new();
+    private bool _loading = true;
+    private bool _recalculating;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        _loading = true;
+        var result = await TransactionNumberService.GetConfigsAsync();
+        _loading = false;
+
+        if (result.IsSuccess)
+        {
+            _configs = result.Value!.ToList();
+        }
+        else
+        {
+            Snackbar.Add(result.Error ?? "Gagal memuat konfigurasi nomor transaksi.", Severity.Error);
+        }
+    }
+
+    private static string GetTransactionTypeLabel(string transactionType) => transactionType switch
+    {
+        TransactionTypes.Sale => "Penjualan",
+        TransactionTypes.PurchaseOrder => "Purchase Order",
+        TransactionTypes.Payment => "Pembayaran",
+        TransactionTypes.JournalEntry => "Jurnal Umum",
+        TransactionTypes.SaleReturn => "Retur Penjualan",
+        TransactionTypes.PurchaseReturn => "Retur Pembelian",
+        _ => transactionType,
+    };
+
+    private static readonly Regex SeqPattern = new(@"\{Seq(?::(?<fmt>[^}]*))?\}", RegexOptions.Compiled);
+
+    private static string RenderNextSample(TransactionNumberConfigDto config)
+    {
+        try
+        {
+            var result = config.Format
+                .Replace("{Prefix}", config.Prefix, StringComparison.Ordinal)
+                .Replace("{Year}", config.Year.ToString(CultureInfo.InvariantCulture), StringComparison.Ordinal);
+
+            var seq = config.CurrentSequence + 1;
+            return SeqPattern.Replace(result, m =>
+            {
+                var fmt = m.Groups["fmt"];
+                return fmt.Success && fmt.Value.Length > 0
+                    ? seq.ToString(fmt.Value, CultureInfo.InvariantCulture)
+                    : seq.ToString(CultureInfo.InvariantCulture);
+            });
+        }
+        catch
+        {
+            return "(Format tidak valid)";
+        }
+    }
+
+    private async Task OpenEditDialogAsync(TransactionNumberConfigDto config)
+    {
+        var parameters = new DialogParameters<TransactionNumberConfigDialog>
+        {
+            { x => x.Config, config }
+        };
+        var options = new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true, CloseOnEscapeKey = true };
+        var dialog = await DialogService.ShowAsync<TransactionNumberConfigDialog>("Ubah Konfigurasi Nomor Transaksi", parameters, options);
+        var result = await dialog.Result;
+
+        if (result is { Canceled: false })
+        {
+            Snackbar.Add("Konfigurasi nomor transaksi berhasil diperbarui.", Severity.Success);
+            await LoadAsync();
+        }
+    }
+
+    private async Task RecalculateBalancesAsync()
+    {
+        var confirmed = await DialogService.ShowMessageBox(
+            "Rekalkulasi Saldo Akun",
+            "Hitung ulang saldo seluruh akun dari baris jurnal yang tercatat? Operasi ini memastikan konsistensi saldo akun.",
+            yesText: "Rekalkulasi", cancelText: "Batal");
+
+        if (confirmed != true) return;
+
+        _recalculating = true;
+        var result = await AccountService.RecalculateBalancesAsync();
+        _recalculating = false;
+
+        if (result.IsSuccess)
+        {
+            Snackbar.Add("Saldo akun berhasil dihitung ulang.", Severity.Success);
+        }
+        else
+        {
+            Snackbar.Add(result.Error ?? "Gagal menghitung ulang saldo akun.", Severity.Error);
+        }
+    }
+}

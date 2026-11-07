@@ -1,0 +1,259 @@
+@page "/journal-entries"
+@attribute [Authorize(Policy = Policies.InputJournal)]
+@using SIA.Application.DTOs.Accounting
+@using SIA.Application.Services.Accounting
+@inject IJournalService JournalService
+@inject IAccountService AccountService
+@inject IDialogService DialogService
+@inject ISnackbar Snackbar
+@inject IAuthorizationService AuthorizationService
+@inject AuthenticationStateProvider AuthStateProvider
+
+<PageTitle>Jurnal Umum - SIA</PageTitle>
+
+<div class="d-flex flex-wrap align-center justify-space-between gap-2">
+    <div>
+        <h1 class="sia-page-title">Jurnal Umum</h1>
+        <MudText Typo="Typo.body2" Class="mud-text-secondary">
+            Pencatatan transaksi manual, riwayat jurnal umum, dan rekalkulasi saldo akun.
+        </MudText>
+    </div>
+</div>
+
+<MudPaper Outlined="true" Class="sia-card pa-4 mt-6">
+    <div class="d-flex flex-wrap align-center gap-4 mb-4">
+        <MudTextField T="string" @bind-Value="_filter.Search" Placeholder="Cari no. jurnal atau keterangan..."
+                      Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Search"
+                      Immediate="true" DebounceInterval="300" OnDebounceIntervalElapsed="SearchAsync"
+                      Variant="Variant.Outlined" Margin="Margin.Dense" Clearable="true" Class="flex-grow-1" />
+        <MudDatePicker Label="Dari tanggal" Date="_filter.DateFrom" DateChanged="DateFromChangedAsync"
+                       DateFormat="dd/MM/yyyy" Variant="Variant.Outlined" Margin="Margin.Dense" Clearable="true" Style="max-width:170px" />
+        <MudDatePicker Label="Sampai tanggal" Date="_filter.DateTo" DateChanged="DateToChangedAsync"
+                       DateFormat="dd/MM/yyyy" Variant="Variant.Outlined" Margin="Margin.Dense" Clearable="true" Style="max-width:170px" />
+        <MudSelect T="int?" Label="Filter Akun" Value="_filter.AccountId" ValueChanged="AccountChangedAsync"
+                   Variant="Variant.Outlined" Margin="Margin.Dense" Clearable="true" Style="max-width:240px">
+            @foreach (var acc in _accounts)
+            {
+                <MudSelectItem T="int?" Value="@((int?)acc.Id)">@acc.Code - @acc.Name</MudSelectItem>
+            }
+        </MudSelect>
+        @if (_isAdmin)
+        {
+            <MudButton Variant="Variant.Outlined" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Calculate"
+                       OnClick="RecalculateAsync" Disabled="_recalculating">Rekalkulasi Saldo</MudButton>
+        }
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Add"
+                   OnClick="OpenCreateDialogAsync">Input Jurnal Baru</MudButton>
+    </div>
+
+    <MudTable Items="_journals" Loading="_loading" Hover="true" Dense="true" Breakpoint="Breakpoint.Sm"
+              Class="sia-table" Elevation="0">
+        <HeaderContent>
+            <MudTh Style="width:48px"></MudTh>
+            <MudTh>No. Jurnal</MudTh>
+            <MudTh>Tanggal</MudTh>
+            <MudTh>Keterangan</MudTh>
+            <MudTh>Dibuat Oleh</MudTh>
+            <MudTh Style="text-align:right">Total Debit</MudTh>
+            <MudTh Style="text-align:right">Total Kredit</MudTh>
+            @if (_isAdmin)
+            {
+                <MudTh Style="text-align:right">Aksi</MudTh>
+            }
+        </HeaderContent>
+        <RowTemplate>
+            <MudTd>
+                <MudIconButton Icon="@(IsExpanded(context.Id) ? Icons.Material.Filled.KeyboardArrowUp : Icons.Material.Filled.KeyboardArrowDown)"
+                               Size="Size.Small" OnClick="() => ToggleExpand(context.Id)"
+                               aria-label="Tampilkan rincian baris" />
+            </MudTd>
+            <MudTd DataLabel="No. Jurnal"><strong>@context.JournalNumber</strong></MudTd>
+            <MudTd DataLabel="Tanggal">@Display.Date(context.TransactionDate)</MudTd>
+            <MudTd DataLabel="Keterangan">@context.Description</MudTd>
+            <MudTd DataLabel="Dibuat Oleh">@(string.IsNullOrWhiteSpace(context.UserName) ? "-" : context.UserName)</MudTd>
+            <MudTd DataLabel="Total Debit" Style="text-align:right">@Display.Rupiah(context.TotalDebit)</MudTd>
+            <MudTd DataLabel="Total Kredit" Style="text-align:right">@Display.Rupiah(context.TotalCredit)</MudTd>
+            @if (_isAdmin)
+            {
+                <MudTd DataLabel="Aksi" Style="text-align:right; white-space:nowrap">
+                    <MudTooltip Text="Hapus Jurnal">
+                        <MudIconButton Icon="@Icons.Material.Outlined.Delete" Size="Size.Small" Color="Color.Error"
+                                       OnClick="() => DeleteAsync(context)" aria-label="Hapus jurnal" />
+                    </MudTooltip>
+                </MudTd>
+            }
+        </RowTemplate>
+        <ChildRowContent>
+            @if (IsExpanded(context.Id))
+            {
+                <MudTr>
+                    <td colspan="@(_isAdmin ? 8 : 7)" class="pa-4" style="background-color: var(--mud-palette-background-gray);">
+                        <MudText Typo="Typo.subtitle2" Class="mb-2"><strong>Rincian Baris Jurnal (@context.JournalNumber)</strong></MudText>
+                        <MudSimpleTable Dense="true" Bordered="true" Class="sia-table" Style="background-color: var(--mud-palette-surface);">
+                            <thead>
+                                <tr>
+                                    <th style="width:140px">Kode Akun</th>
+                                    <th>Nama Akun</th>
+                                    <th style="text-align:right; width:180px">Debit</th>
+                                    <th style="text-align:right; width:180px">Kredit</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var line in context.Lines)
+                                {
+                                    <tr>
+                                        <td>@line.AccountCode</td>
+                                        <td>@line.AccountName</td>
+                                        <td style="text-align:right">@(line.Debit > 0 ? Display.Rupiah(line.Debit) : "-")</td>
+                                        <td style="text-align:right">@(line.Credit > 0 ? Display.Rupiah(line.Credit) : "-")</td>
+                                    </tr>
+                                }
+                            </tbody>
+                            <tfoot>
+                                <tr style="font-weight:bold; background-color: var(--mud-palette-background-gray);">
+                                    <td colspan="2" style="text-align:right">Total:</td>
+                                    <td style="text-align:right">@Display.Rupiah(context.TotalDebit)</td>
+                                    <td style="text-align:right">@Display.Rupiah(context.TotalCredit)</td>
+                                </tr>
+                            </tfoot>
+                        </MudSimpleTable>
+                    </td>
+                </MudTr>
+            }
+        </ChildRowContent>
+        <NoRecordsContent>
+            <MudText Typo="Typo.body2">Belum ada data jurnal umum.</MudText>
+        </NoRecordsContent>
+        <LoadingContent>
+            <MudText Typo="Typo.body2">Memuat data jurnal...</MudText>
+        </LoadingContent>
+    </MudTable>
+</MudPaper>
+
+@code {
+    private IReadOnlyList<JournalEntryDto> _journals = Array.Empty<JournalEntryDto>();
+    private IReadOnlyList<AccountDto> _accounts = Array.Empty<AccountDto>();
+    private readonly JournalFilterDto _filter = new();
+    private readonly HashSet<int> _expandedIds = new();
+    private bool _loading = true;
+    private bool _recalculating;
+    private bool _isAdmin;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var state = await AuthStateProvider.GetAuthenticationStateAsync();
+        _isAdmin = (await AuthorizationService.AuthorizeAsync(state.User, Policies.RequireAdmin)).Succeeded;
+
+        var accResult = await AccountService.GetAllAsync(includeInactive: false);
+        if (accResult.IsSuccess)
+        {
+            _accounts = accResult.Value!;
+        }
+
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        _loading = true;
+        var result = await JournalService.GetAllAsync(_filter);
+        if (result.IsSuccess)
+        {
+            _journals = result.Value!;
+        }
+        else
+        {
+            Snackbar.Add(result.Error!, Severity.Error);
+        }
+        _loading = false;
+    }
+
+    private async Task SearchAsync(string value)
+    {
+        _filter.Search = value;
+        await LoadAsync();
+    }
+
+    private async Task DateFromChangedAsync(DateTime? value)
+    {
+        _filter.DateFrom = value;
+        await LoadAsync();
+    }
+
+    private async Task DateToChangedAsync(DateTime? value)
+    {
+        _filter.DateTo = value;
+        await LoadAsync();
+    }
+
+    private async Task AccountChangedAsync(int? value)
+    {
+        _filter.AccountId = value;
+        await LoadAsync();
+    }
+
+    private void ToggleExpand(int id)
+    {
+        if (!_expandedIds.Add(id))
+        {
+            _expandedIds.Remove(id);
+        }
+    }
+
+    private bool IsExpanded(int id) => _expandedIds.Contains(id);
+
+    private async Task OpenCreateDialogAsync()
+    {
+        var options = new DialogOptions { MaxWidth = MaxWidth.Medium, FullWidth = true, CloseOnEscapeKey = true };
+        var dialog = await DialogService.ShowAsync<JournalEntryFormDialog>("Input Jurnal Umum", options);
+        var result = await dialog.Result;
+        if (result is { Canceled: false })
+        {
+            Snackbar.Add("Jurnal umum berhasil disimpan.", Severity.Success);
+            await LoadAsync();
+        }
+    }
+
+    private async Task RecalculateAsync()
+    {
+        var confirmed = await DialogService.ShowMessageBox(
+            "Rekalkulasi Saldo",
+            "Hitung ulang saldo seluruh akun dari baris jurnal yang tercatat? Operasi ini memastikan konsistensi saldo akun.",
+            yesText: "Rekalkulasi", cancelText: "Batal");
+        if (confirmed != true) return;
+
+        _recalculating = true;
+        var result = await AccountService.RecalculateBalancesAsync();
+        _recalculating = false;
+
+        if (result.IsSuccess)
+        {
+            Snackbar.Add("Saldo akun berhasil dihitung ulang.", Severity.Success);
+            await LoadAsync();
+        }
+        else
+        {
+            Snackbar.Add(result.Error!, Severity.Error);
+        }
+    }
+
+    private async Task DeleteAsync(JournalEntryDto j)
+    {
+        var confirmed = await DialogService.ShowMessageBox(
+            "Hapus Jurnal",
+            $"Hapus jurnal {j.JournalNumber} ({j.Description})? Saldo akun yang terpengaruh akan dibalik secara otomatis.",
+            yesText: "Hapus", cancelText: "Batal");
+        if (confirmed != true) return;
+
+        var result = await JournalService.DeleteAsync(j.Id);
+        if (result.IsSuccess)
+        {
+            Snackbar.Add("Jurnal berhasil dihapus.", Severity.Success);
+            await LoadAsync();
+        }
+        else
+        {
+            Snackbar.Add(result.Error!, Severity.Error);
+        }
+    }
+}

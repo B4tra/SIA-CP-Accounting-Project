@@ -1,0 +1,314 @@
+@page "/admin/audit-logs"
+@attribute [Authorize(Policy = Policies.RequireAdmin)]
+
+@using System.Text.Json
+@using Microsoft.AspNetCore.Authorization
+@using SIA.Application.Common.Constants
+@using SIA.Application.Common.Interfaces
+@using SIA.Application.DTOs.System
+@using SIA.Application.Services.System
+@using SIA.Web.Formatting
+@inject IAuditService AuditService
+@inject IUserService UserService
+@inject ISnackbar Snackbar
+
+<PageTitle>Audit Log - SIA</PageTitle>
+
+<div class="d-flex flex-wrap align-center justify-space-between gap-2">
+    <div>
+        <h1 class="sia-page-title">Audit Log</h1>
+        <MudText Typo="Typo.body2" Class="mud-text-secondary">
+            Riwayat jejak aktivitas pengguna dan perubahan data entitas pada sistem.
+        </MudText>
+    </div>
+</div>
+
+<MudPaper Outlined="true" Class="sia-card pa-4 mt-6">
+    <MudGrid Spacing="2" Class="align-center mb-4">
+        <MudItem xs="12" sm="6" md="2">
+            <MudDatePicker @bind-Date="_dateFrom" Label="Dari Tanggal" DateFormat="dd/MM/yyyy"
+                           Clearable="true" Variant="Variant.Outlined" Margin="Margin.Dense" />
+        </MudItem>
+        <MudItem xs="12" sm="6" md="2">
+            <MudDatePicker @bind-Date="_dateTo" Label="Sampai Tanggal" DateFormat="dd/MM/yyyy"
+                           Clearable="true" Variant="Variant.Outlined" Margin="Margin.Dense" />
+        </MudItem>
+        <MudItem xs="12" sm="6" md="2">
+            <MudSelect T="string" @bind-Value="_action" Label="Aksi" Variant="Variant.Outlined" Margin="Margin.Dense" Clearable="true">
+                <MudSelectItem Value="@((string?)null)">Semua Aksi</MudSelectItem>
+                <MudSelectItem Value="@("Create")">Create</MudSelectItem>
+                <MudSelectItem Value="@("Update")">Update</MudSelectItem>
+                <MudSelectItem Value="@("Delete")">Delete</MudSelectItem>
+                <MudSelectItem Value="@("Activate")">Activate</MudSelectItem>
+                <MudSelectItem Value="@("Deactivate")">Deactivate</MudSelectItem>
+                <MudSelectItem Value="@("ResetPassword")">ResetPassword</MudSelectItem>
+            </MudSelect>
+        </MudItem>
+        <MudItem xs="12" sm="6" md="2">
+            <MudTextField T="string" @bind-Value="_entityName" Label="Entitas" Placeholder="User, Sale, dll."
+                          Clearable="true" Variant="Variant.Outlined" Margin="Margin.Dense" />
+        </MudItem>
+        <MudItem xs="12" sm="6" md="2">
+            <MudSelect T="string" @bind-Value="_userId" Label="Pengguna" Variant="Variant.Outlined" Margin="Margin.Dense" Clearable="true">
+                <MudSelectItem Value="@((string?)null)">Semua Pengguna</MudSelectItem>
+                @foreach (var user in _users)
+                {
+                    <MudSelectItem Value="@user.Id">@user.FullName (@user.Email)</MudSelectItem>
+                }
+            </MudSelect>
+        </MudItem>
+        <MudItem xs="12" sm="6" md="2" Class="d-flex align-center gap-2">
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="LoadAsync" Size="Size.Medium">
+                Filter
+            </MudButton>
+            <MudButton Variant="Variant.Outlined" OnClick="ResetFilterAsync" Size="Size.Medium">
+                Reset
+            </MudButton>
+        </MudItem>
+    </MudGrid>
+
+    <MudTable Items="_logs" Loading="_loading" Hover="true" Dense="true" Class="sia-table" Elevation="0">
+        <HeaderContent>
+            <MudTh Style="width: 48px;"></MudTh>
+            <MudTh>Waktu</MudTh>
+            <MudTh>Pengguna</MudTh>
+            <MudTh>Aksi</MudTh>
+            <MudTh>Entitas</MudTh>
+            <MudTh>ID Entitas</MudTh>
+            <MudTh>IP Address</MudTh>
+        </HeaderContent>
+        <RowTemplate>
+            <MudTd>
+                <MudIconButton Icon="@(IsExpanded(context.Id) ? Icons.Material.Filled.KeyboardArrowUp : Icons.Material.Filled.KeyboardArrowDown)"
+                               Size="Size.Small" OnClick="() => ToggleExpand(context.Id)"
+                               aria-label="Tampilkan rincian baris" />
+            </MudTd>
+            <MudTd DataLabel="Waktu">@DateTime.SpecifyKind(context.Timestamp, DateTimeKind.Utc).ToLocalTime().ToString("dd/MM/yyyy HH:mm:ss", Display.Culture)</MudTd>
+            <MudTd DataLabel="Pengguna">@(context.UserName ?? context.UserId ?? "Sistem")</MudTd>
+            <MudTd DataLabel="Aksi">
+                <MudChip T="string" Color="@GetActionColor(context.Action)" Size="Size.Small">
+                    @context.Action
+                </MudChip>
+            </MudTd>
+            <MudTd DataLabel="Entitas">@context.EntityName</MudTd>
+            <MudTd DataLabel="ID Entitas"><code>@context.EntityId</code></MudTd>
+            <MudTd DataLabel="IP Address">@(context.IpAddress ?? "-")</MudTd>
+        </RowTemplate>
+        <ChildRowContent>
+            @if (IsExpanded(context.Id))
+            {
+                <MudTr>
+                    <td colspan="7" class="pa-4" style="background-color: var(--mud-palette-background-gray);">
+                        <MudText Typo="Typo.subtitle2" Class="mb-2">
+                            <strong>Rincian Perubahan Entitas (@context.EntityName #@context.EntityId)</strong>
+                        </MudText>
+                        @{
+                            var diffs = ParseDiff(context.OldValues, context.NewValues);
+                        }
+                        @if (diffs.Count == 0)
+                        {
+                            <MudText Typo="Typo.body2" Class="mud-text-secondary">
+                                Tidak ada data perubahan spesifik atau payload kosong.
+                            </MudText>
+                        }
+                        else
+                        {
+                            <MudSimpleTable Dense="true" Bordered="true" Class="sia-table" Style="background-color: var(--mud-palette-surface);">
+                                <thead>
+                                    <tr>
+                                        <th style="width: 30%;">Properti</th>
+                                        <th style="width: 35%;">Nilai Lama</th>
+                                        <th style="width: 35%;">Nilai Baru</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (var diff in diffs)
+                                    {
+                                        <tr>
+                                            <td>
+                                                <code>@diff.Property</code>
+                                            </td>
+                                            <td>@(diff.OldValue ?? "-")</td>
+                                            <td>
+                                                @if (diff.IsChanged)
+                                                {
+                                                    <strong>@(diff.NewValue ?? "-")</strong>
+                                                }
+                                                else
+                                                {
+                                                    @(diff.NewValue ?? "-")
+                                                }
+                                            </td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </MudSimpleTable>
+                        }
+                    </td>
+                </MudTr>
+            }
+        </ChildRowContent>
+        <NoRecordsContent>
+            <MudText Class="pa-4 text-center">Tidak ada catatan audit log.</MudText>
+        </NoRecordsContent>
+        <LoadingContent>
+            <MudText Class="pa-4 text-center">Memuat audit log...</MudText>
+        </LoadingContent>
+    </MudTable>
+</MudPaper>
+
+@code {
+    private List<AuditLogDto> _logs = new();
+    private IReadOnlyList<UserDto> _users = Array.Empty<UserDto>();
+    private readonly HashSet<long> _expandedIds = new();
+    private bool _loading = true;
+
+    private DateTime? _dateFrom;
+    private DateTime? _dateTo;
+    private string? _action;
+    private string? _entityName;
+    private string? _userId;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var userResult = await UserService.GetAllAsync();
+        if (userResult.IsSuccess)
+        {
+            _users = userResult.Value!;
+        }
+
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        _loading = true;
+        var filter = new AuditLogFilterDto
+        {
+            DateFrom = _dateFrom,
+            DateTo = _dateTo,
+            Action = _action,
+            EntityName = _entityName,
+            UserId = _userId,
+            MaxResults = 500,
+        };
+
+        var result = await AuditService.GetLogsAsync(filter);
+        _loading = false;
+
+        if (result.IsSuccess)
+        {
+            _logs = result.Value!.ToList();
+        }
+        else
+        {
+            Snackbar.Add(result.Error ?? "Gagal memuat audit log.", Severity.Error);
+        }
+    }
+
+    private async Task ResetFilterAsync()
+    {
+        _dateFrom = null;
+        _dateTo = null;
+        _action = null;
+        _entityName = null;
+        _userId = null;
+        await LoadAsync();
+    }
+
+    private void ToggleExpand(long id)
+    {
+        if (!_expandedIds.Add(id))
+            _expandedIds.Remove(id);
+    }
+
+    private bool IsExpanded(long id) => _expandedIds.Contains(id);
+
+    private static Color GetActionColor(string action) => action switch
+    {
+        "Create" => Color.Success,
+        "Activate" => Color.Success,
+        "Update" => Color.Primary,
+        "Delete" => Color.Error,
+        "Deactivate" => Color.Warning,
+        "ResetPassword" => Color.Warning,
+        _ => Color.Default,
+    };
+
+    private class PropertyDiff
+    {
+        public string Property { get; set; } = string.Empty;
+        public string? OldValue { get; set; }
+        public string? NewValue { get; set; }
+        public bool IsChanged => !string.Equals(OldValue, NewValue, StringComparison.Ordinal);
+    }
+
+    private static List<PropertyDiff> ParseDiff(string? oldJson, string? newJson)
+    {
+        var diffs = new Dictionary<string, PropertyDiff>(StringComparer.OrdinalIgnoreCase);
+
+        if (!string.IsNullOrWhiteSpace(oldJson))
+        {
+            try
+            {
+                using var doc = JsonDocument.Parse(oldJson);
+                if (doc.RootElement.ValueKind == JsonValueKind.Object)
+                {
+                    foreach (var prop in doc.RootElement.EnumerateObject())
+                    {
+                        diffs[prop.Name] = new PropertyDiff
+                        {
+                            Property = prop.Name,
+                            OldValue = FormatJsonElement(prop.Value),
+                        };
+                    }
+                }
+            }
+            catch
+            {
+                // Format bukan JSON valid atau skalar
+            }
+        }
+
+        if (!string.IsNullOrWhiteSpace(newJson))
+        {
+            try
+            {
+                using var doc = JsonDocument.Parse(newJson);
+                if (doc.RootElement.ValueKind == JsonValueKind.Object)
+                {
+                    foreach (var prop in doc.RootElement.EnumerateObject())
+                    {
+                        if (diffs.TryGetValue(prop.Name, out var existing))
+                        {
+                            existing.NewValue = FormatJsonElement(prop.Value);
+                        }
+                        else
+                        {
+                            diffs[prop.Name] = new PropertyDiff
+                            {
+                                Property = prop.Name,
+                                NewValue = FormatJsonElement(prop.Value),
+                            };
+                        }
+                    }
+                }
+            }
+            catch
+            {
+                // Format bukan JSON valid atau skalar
+            }
+        }
+
+        return diffs.Values.OrderBy(d => d.Property).ToList();
+    }
+
+    private static string FormatJsonElement(JsonElement element) => element.ValueKind switch
+    {
+        JsonValueKind.Null => "-",
+        JsonValueKind.True => "true",
+        JsonValueKind.False => "false",
+        JsonValueKind.String => element.GetString() ?? "-",
+        _ => element.GetRawText(),
+    };
+}

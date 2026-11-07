@@ -1,0 +1,262 @@
+@page "/reports/income-statement"
+@attribute [Authorize(Policy = Policies.ViewReports)]
+@using SIA.Application.DTOs.Reporting
+@using SIA.Application.Services.Reporting
+@inject IFinancialReportService FinancialReportService
+@inject IJSRuntime JS
+@inject ISnackbar Snackbar
+
+<PageTitle>Laporan Laba Rugi - SIA</PageTitle>
+
+<div class="d-flex flex-wrap align-center justify-space-between gap-2 no-print">
+    <div>
+        <h1 class="sia-page-title">Laporan Laba Rugi</h1>
+        <MudText Typo="Typo.body2" Class="mud-text-secondary">
+            Ringkasan pendapatan, beban pokok, beban operasional, dan laba bersih periode berjalan.
+        </MudText>
+    </div>
+    <div class="d-flex flex-wrap align-center gap-3">
+        <MudDatePicker Label="Dari tanggal" Date="_dateFrom" DateChanged="OnDateFromChanged"
+                       DateFormat="dd/MM/yyyy" Variant="Variant.Outlined" Margin="Margin.Dense" Style="max-width:170px" />
+        <MudDatePicker Label="Sampai tanggal" Date="_dateTo" DateChanged="OnDateToChanged"
+                       DateFormat="dd/MM/yyyy" Variant="Variant.Outlined" Margin="Margin.Dense" Style="max-width:170px" />
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Refresh"
+                   OnClick="LoadAsync" Disabled="_loading">Tampilkan</MudButton>
+        <MudButton Variant="Variant.Outlined" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Print"
+                   OnClick="PrintAsync" Disabled="@(_data is null)">Cetak Laporan</MudButton>
+    </div>
+</div>
+
+@if (_loading)
+{
+    <MudPaper Outlined="true" Class="sia-card pa-6 mt-4">
+        <MudText Typo="Typo.body2">Memuat laporan laba rugi...</MudText>
+    </MudPaper>
+}
+else if (_data is null)
+{
+    <MudAlert Severity="Severity.Error" Variant="Variant.Outlined" Class="mt-4">
+        @(_errorMessage ?? "Gagal memuat data laba rugi. Silakan coba kembali.")
+    </MudAlert>
+}
+else
+{
+    <MudPaper Outlined="true" Class="sia-card pa-6 mt-4 print-container">
+        <div class="d-flex flex-wrap justify-space-between align-start gap-4 mb-4">
+            <div>
+                <MudText Typo="Typo.h6"><strong>TOKO AKI / BATERAI KENDARAAN</strong></MudText>
+                <MudText Typo="Typo.subtitle1"><strong>LAPORAN LABA RUGI (INCOME STATEMENT)</strong></MudText>
+                <MudText Typo="Typo.body2" Class="mud-text-secondary">
+                    Periode: @Display.Date(_data.DateFrom) s.d. @Display.Date(_data.DateTo)
+                </MudText>
+            </div>
+            <div style="text-align:right">
+                <MudChip T="string" Color="@(_data.NetIncome >= 0 ? Color.Success : Color.Error)" Variant="Variant.Filled">
+                    @(_data.NetIncome >= 0 ? "Laba Bersih" : "Rugi Bersih")
+                </MudChip>
+            </div>
+        </div>
+
+        <MudDivider Class="my-4" />
+
+        <!-- 1. PENDAPATAN USAHA -->
+        <MudText Typo="Typo.subtitle1" Class="mt-4 mb-2"><strong>1. PENDAPATAN USAHA</strong></MudText>
+        <MudSimpleTable Dense="true" Bordered="false" Class="sia-table mb-2">
+            <tbody>
+                @if (_data.Revenue.Lines.Count == 0)
+                {
+                    <tr>
+                        <td colspan="2" class="mud-text-secondary" style="font-style:italic">Tidak ada transaksi pendapatan</td>
+                    </tr>
+                }
+                else
+                {
+                    @foreach (var line in _data.Revenue.Lines)
+                    {
+                        <tr>
+                            <td>@line.AccountCode - @line.AccountName</td>
+                            <td style="text-align:right">@Display.Rupiah(line.Amount)</td>
+                        </tr>
+                    }
+                }
+            </tbody>
+            <tfoot>
+                <tr style="font-weight:bold; background-color: var(--mud-palette-background-gray);">
+                    <td>Total Pendapatan Usaha</td>
+                    <td style="text-align:right">@Display.Rupiah(_data.Revenue.Total)</td>
+                </tr>
+            </tfoot>
+        </MudSimpleTable>
+
+        <!-- 2. BEBAN POKOK PENJUALAN -->
+        <MudText Typo="Typo.subtitle1" Class="mt-4 mb-2"><strong>2. BEBAN POKOK PENJUALAN (HPP)</strong></MudText>
+        <MudSimpleTable Dense="true" Bordered="false" Class="sia-table mb-2">
+            <tbody>
+                @if (_data.CostOfGoodsSold.Lines.Count == 0)
+                {
+                    <tr>
+                        <td colspan="2" class="mud-text-secondary" style="font-style:italic">Tidak ada transaksi HPP</td>
+                    </tr>
+                }
+                else
+                {
+                    @foreach (var line in _data.CostOfGoodsSold.Lines)
+                    {
+                        <tr>
+                            <td>@line.AccountCode - @line.AccountName</td>
+                            <td style="text-align:right">@Display.Rupiah(line.Amount)</td>
+                        </tr>
+                    }
+                }
+            </tbody>
+            <tfoot>
+                <tr style="font-weight:bold; background-color: var(--mud-palette-background-gray);">
+                    <td>Total Beban Pokok Penjualan</td>
+                    <td style="text-align:right">@Display.Rupiah(_data.CostOfGoodsSold.Total)</td>
+                </tr>
+            </tfoot>
+        </MudSimpleTable>
+
+        <!-- 3. LABA KOTOR -->
+        <div class="d-flex justify-space-between align-center pa-3 my-3" style="background-color: var(--mud-palette-background-gray); border-radius: var(--mud-default-borderradius);">
+            <MudText Typo="Typo.subtitle1"><strong>LABA KOTOR (GROSS PROFIT)</strong></MudText>
+            <MudText Typo="Typo.h6"><strong>@Display.Rupiah(_data.GrossProfit)</strong></MudText>
+        </div>
+
+        <!-- 4. BEBAN OPERASIONAL -->
+        <MudText Typo="Typo.subtitle1" Class="mt-4 mb-2"><strong>3. BEBAN OPERASIONAL</strong></MudText>
+        <MudSimpleTable Dense="true" Bordered="false" Class="sia-table mb-2">
+            <tbody>
+                @if (_data.OperatingExpenses.Lines.Count == 0)
+                {
+                    <tr>
+                        <td colspan="2" class="mud-text-secondary" style="font-style:italic">Tidak ada transaksi beban operasional</td>
+                    </tr>
+                }
+                else
+                {
+                    @foreach (var line in _data.OperatingExpenses.Lines)
+                    {
+                        <tr>
+                            <td>@line.AccountCode - @line.AccountName</td>
+                            <td style="text-align:right">@Display.Rupiah(line.Amount)</td>
+                        </tr>
+                    }
+                }
+            </tbody>
+            <tfoot>
+                <tr style="font-weight:bold; background-color: var(--mud-palette-background-gray);">
+                    <td>Total Beban Operasional</td>
+                    <td style="text-align:right">@Display.Rupiah(_data.OperatingExpenses.Total)</td>
+                </tr>
+            </tfoot>
+        </MudSimpleTable>
+
+        <!-- 5. LABA OPERASIONAL -->
+        <div class="d-flex justify-space-between align-center pa-3 my-3" style="background-color: var(--mud-palette-background-gray); border-radius: var(--mud-default-borderradius);">
+            <MudText Typo="Typo.subtitle1"><strong>LABA OPERASIONAL (OPERATING PROFIT)</strong></MudText>
+            <MudText Typo="Typo.h6"><strong>@Display.Rupiah(_data.OperatingProfit)</strong></MudText>
+        </div>
+
+        <!-- 6. PENDAPATAN & BEBAN LAIN-LAIN -->
+        <MudText Typo="Typo.subtitle1" Class="mt-4 mb-2"><strong>4. PENDAPATAN & BEBAN LAIN-LAIN</strong></MudText>
+        <MudSimpleTable Dense="true" Bordered="false" Class="sia-table mb-2">
+            <tbody>
+                @if (_data.OtherRevenue.Lines.Count == 0 && _data.OtherExpenses.Lines.Count == 0)
+                {
+                    <tr>
+                        <td colspan="2" class="mud-text-secondary" style="font-style:italic">Tidak ada transaksi pendapatan atau beban lain-lain</td>
+                    </tr>
+                }
+                else
+                {
+                    @foreach (var line in _data.OtherRevenue.Lines)
+                    {
+                        <tr>
+                            <td>@line.AccountCode - @line.AccountName (Pendapatan Lain-lain)</td>
+                            <td style="text-align:right">@Display.Rupiah(line.Amount)</td>
+                        </tr>
+                    }
+                    @foreach (var line in _data.OtherExpenses.Lines)
+                    {
+                        <tr>
+                            <td>@line.AccountCode - @line.AccountName (Beban Lain-lain)</td>
+                            <td style="text-align:right">@Display.Rupiah(line.Amount)</td>
+                        </tr>
+                    }
+                }
+            </tbody>
+            <tfoot>
+                <tr style="font-weight:bold; background-color: var(--mud-palette-background-gray);">
+                    <td>Total Pendapatan (Beban) Lain-lain Bersih</td>
+                    <td style="text-align:right">@Display.Rupiah(_data.OtherRevenue.Total - _data.OtherExpenses.Total)</td>
+                </tr>
+            </tfoot>
+        </MudSimpleTable>
+
+        <!-- 7. LABA / (RUGI) BERSIH -->
+        <div class="d-flex justify-space-between align-center pa-4 mt-6" style="background-color: var(--mud-palette-background-gray); border-radius: var(--mud-default-borderradius); border: 2px solid var(--mud-palette-primary);">
+            <div>
+                <MudText Typo="Typo.caption" Class="mud-text-secondary">HASIL AKHIR</MudText>
+                <MudText Typo="Typo.h6"><strong>LABA / (RUGI) BERSIH (NET INCOME)</strong></MudText>
+            </div>
+            <MudText Typo="Typo.h5" Color="@(_data.NetIncome >= 0 ? Color.Success : Color.Error)">
+                <strong>@Display.Rupiah(_data.NetIncome)</strong>
+            </MudText>
+        </div>
+    </MudPaper>
+}
+
+@code {
+    private DateTime? _dateFrom = new DateTime(DateTime.Today.Year, DateTime.Today.Month, 1);
+    private DateTime? _dateTo = DateTime.Today;
+    private IncomeStatementDto? _data;
+    private string? _errorMessage;
+    private bool _loading = true;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadAsync();
+    }
+
+    private void OnDateFromChanged(DateTime? date)
+    {
+        _dateFrom = date;
+    }
+
+    private void OnDateToChanged(DateTime? date)
+    {
+        _dateTo = date;
+    }
+
+    private async Task LoadAsync()
+    {
+        if (_dateFrom.HasValue && _dateTo.HasValue && _dateFrom.Value.Date > _dateTo.Value.Date)
+        {
+            Snackbar.Add("Tanggal awal tidak boleh melebihi tanggal akhir.", Severity.Warning);
+            return;
+        }
+
+        _loading = true;
+        _errorMessage = null;
+
+        var from = _dateFrom ?? new DateTime(DateTime.Today.Year, DateTime.Today.Month, 1);
+        var to = _dateTo ?? DateTime.Today;
+
+        var result = await FinancialReportService.GetIncomeStatementAsync(from, to);
+        if (result.IsSuccess)
+        {
+            _data = result.Value;
+        }
+        else
+        {
+            _data = null;
+            _errorMessage = result.Error;
+            Snackbar.Add(result.Error!, Severity.Error);
+        }
+
+        _loading = false;
+    }
+
+    private async Task PrintAsync() => await JS.InvokeVoidAsync("window.print");
+}

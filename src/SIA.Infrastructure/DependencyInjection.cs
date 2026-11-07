@@ -7,6 +7,7 @@ using SIA.Application.Services.Accounting;
 using SIA.Application.Services.Inventory;
 using SIA.Application.Services.Payments;
 using SIA.Application.Services.Purchasing;
+using SIA.Application.Services.Reporting;
 using SIA.Application.Services.Sales;
 using SIA.Application.Services.System;
 using SIA.Infrastructure.Data;
@@ -63,6 +64,14 @@ public static class DependencyInjection
         // Service aplikasi (Retur penjualan & retur pembelian)
         services.AddScoped<ISaleReturnService, SaleReturnService>();
         services.AddScoped<IPurchaseReturnService, PurchaseReturnService>();
+
+        // Service aplikasi (Jurnal umum & laporan keuangan)
+        services.AddScoped<IJournalService, JournalService>();
+        services.AddScoped<IFinancialReportService, FinancialReportService>();
+
+        // Service aplikasi (Tahap Admin)
+        services.AddScoped<IAuditService, AuditService>();
+        services.AddScoped<IUserService, UserService>();
 
         // Identity: user, role, store EF Core. SignInManager & cookie didaftarkan di layer Web.
         services.AddIdentityCore<ApplicationUser>(options =>

@@ -1,0 +1,245 @@
+@page "/reports/balance-sheet"
+@attribute [Authorize(Policy = Policies.ViewReports)]
+@using SIA.Application.DTOs.Reporting
+@using SIA.Application.Services.Reporting
+@inject IFinancialReportService FinancialReportService
+@inject IJSRuntime JS
+@inject ISnackbar Snackbar
+
+<PageTitle>Laporan Neraca - SIA</PageTitle>
+
+<div class="d-flex flex-wrap align-center justify-space-between gap-2 no-print">
+    <div>
+        <h1 class="sia-page-title">Laporan Neraca</h1>
+        <MudText Typo="Typo.body2" Class="mud-text-secondary">
+            Posisi keuangan perusahaan (Aset, Liabilitas, dan Ekuitas) per tanggal tertentu.
+        </MudText>
+    </div>
+    <div class="d-flex flex-wrap align-center gap-3">
+        <MudDatePicker Label="Per tanggal" Date="_asOfDate" DateChanged="OnDateChanged"
+                       DateFormat="dd/MM/yyyy" Variant="Variant.Outlined" Margin="Margin.Dense" Style="max-width:180px" />
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Refresh"
+                   OnClick="LoadAsync" Disabled="_loading">Tampilkan</MudButton>
+        <MudButton Variant="Variant.Outlined" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Print"
+                   OnClick="PrintAsync" Disabled="@(_data is null)">Cetak Laporan</MudButton>
+    </div>
+</div>
+
+@if (_loading)
+{
+    <MudPaper Outlined="true" Class="sia-card pa-6 mt-4">
+        <MudText Typo="Typo.body2">Memuat laporan neraca...</MudText>
+    </MudPaper>
+}
+else if (_data is null)
+{
+    <MudAlert Severity="Severity.Error" Variant="Variant.Outlined" Class="mt-4">
+        @(_errorMessage ?? "Gagal memuat data neraca. Silakan coba kembali.")
+    </MudAlert>
+}
+else
+{
+    <MudPaper Outlined="true" Class="sia-card pa-6 mt-4 print-container">
+        <div class="d-flex flex-wrap justify-space-between align-start gap-4 mb-4">
+            <div>
+                <MudText Typo="Typo.h6"><strong>TOKO AKI / BATERAI KENDARAAN</strong></MudText>
+                <MudText Typo="Typo.subtitle1"><strong>LAPORAN NERACA (BALANCE SHEET)</strong></MudText>
+                <MudText Typo="Typo.body2" Class="mud-text-secondary">Per @Display.Date(_data.AsOfDate)</MudText>
+            </div>
+            <div style="text-align:right">
+                @if (IsBalanced)
+                {
+                    <MudChip T="string" Color="Color.Success" Variant="Variant.Filled" Icon="@Icons.Material.Filled.CheckCircle">
+                        Neraca Seimbang
+                    </MudChip>
+                }
+                else
+                {
+                    <MudChip T="string" Color="Color.Error" Variant="Variant.Filled" Icon="@Icons.Material.Filled.Warning">
+                        Neraca Tidak Seimbang
+                    </MudChip>
+                }
+            </div>
+        </div>
+
+        <MudDivider Class="my-4" />
+
+        <MudGrid Spacing="4">
+            <!-- Kolom Kiri: Aset -->
+            <MudItem xs="12" md="6">
+                <MudText Typo="Typo.h6" Class="mb-3"><strong>ASET</strong></MudText>
+
+                @foreach (var sec in _data.AssetSections)
+                {
+                    <div class="mb-4">
+                        <MudText Typo="Typo.subtitle2" Class="mud-text-secondary mb-1"><strong>@sec.Title.ToUpperInvariant()</strong></MudText>
+                        <MudSimpleTable Dense="true" Bordered="false" Class="sia-table mb-2">
+                            <tbody>
+                                @if (sec.Lines.Count == 0)
+                                {
+                                    <tr>
+                                        <td colspan="2" class="mud-text-secondary" style="font-style:italic">Tidak ada transaksi</td>
+                                    </tr>
+                                }
+                                else
+                                {
+                                    @foreach (var line in sec.Lines)
+                                    {
+                                        <tr>
+                                            <td>@line.AccountCode - @line.AccountName</td>
+                                            <td style="text-align:right">@Display.Rupiah(line.Amount)</td>
+                                        </tr>
+                                    }
+                                }
+                            </tbody>
+                            <tfoot>
+                                <tr style="font-weight:bold; background-color: var(--mud-palette-background-gray);">
+                                    <td>Total @sec.Title</td>
+                                    <td style="text-align:right">@Display.Rupiah(sec.Total)</td>
+                                </tr>
+                            </tfoot>
+                        </MudSimpleTable>
+                    </div>
+                }
+
+                <div class="d-flex justify-space-between align-center pa-3 mt-4" style="background-color: var(--mud-palette-background-gray); border-radius: var(--mud-default-borderradius); border: 2px solid var(--mud-palette-primary);">
+                    <MudText Typo="Typo.subtitle1"><strong>TOTAL ASET</strong></MudText>
+                    <MudText Typo="Typo.h6"><strong>@Display.Rupiah(_data.TotalAssets)</strong></MudText>
+                </div>
+            </MudItem>
+
+            <!-- Kolom Kanan: Liabilitas dan Ekuitas -->
+            <MudItem xs="12" md="6">
+                <!-- Seksi Liabilitas -->
+                <MudText Typo="Typo.h6" Class="mb-3"><strong>LIABILITAS</strong></MudText>
+
+                @foreach (var sec in _data.LiabilitySections)
+                {
+                    <div class="mb-4">
+                        <MudText Typo="Typo.subtitle2" Class="mud-text-secondary mb-1"><strong>@sec.Title.ToUpperInvariant()</strong></MudText>
+                        <MudSimpleTable Dense="true" Bordered="false" Class="sia-table mb-2">
+                            <tbody>
+                                @if (sec.Lines.Count == 0)
+                                {
+                                    <tr>
+                                        <td colspan="2" class="mud-text-secondary" style="font-style:italic">Tidak ada transaksi</td>
+                                    </tr>
+                                }
+                                else
+                                {
+                                    @foreach (var line in sec.Lines)
+                                    {
+                                        <tr>
+                                            <td>@line.AccountCode - @line.AccountName</td>
+                                            <td style="text-align:right">@Display.Rupiah(line.Amount)</td>
+                                        </tr>
+                                    }
+                                }
+                            </tbody>
+                            <tfoot>
+                                <tr style="font-weight:bold; background-color: var(--mud-palette-background-gray);">
+                                    <td>Total @sec.Title</td>
+                                    <td style="text-align:right">@Display.Rupiah(sec.Total)</td>
+                                </tr>
+                            </tfoot>
+                        </MudSimpleTable>
+                    </div>
+                }
+
+                <div class="d-flex justify-space-between align-center pa-2 mb-4" style="background-color: var(--mud-palette-background-gray); border-radius: var(--mud-default-borderradius);">
+                    <MudText Typo="Typo.subtitle2"><strong>TOTAL LIABILITAS</strong></MudText>
+                    <MudText Typo="Typo.subtitle1"><strong>@Display.Rupiah(_data.TotalLiabilities)</strong></MudText>
+                </div>
+
+                <MudDivider Class="my-4" />
+
+                <!-- Seksi Ekuitas -->
+                <MudText Typo="Typo.h6" Class="mb-3"><strong>EKUITAS</strong></MudText>
+
+                @foreach (var sec in _data.EquitySections)
+                {
+                    <div class="mb-2">
+                        <MudText Typo="Typo.subtitle2" Class="mud-text-secondary mb-1"><strong>@sec.Title.ToUpperInvariant()</strong></MudText>
+                        <MudSimpleTable Dense="true" Bordered="false" Class="sia-table mb-2">
+                            <tbody>
+                                @if (sec.Lines.Count == 0)
+                                {
+                                    <tr>
+                                        <td colspan="2" class="mud-text-secondary" style="font-style:italic">Tidak ada transaksi</td>
+                                    </tr>
+                                }
+                                else
+                                {
+                                    @foreach (var line in sec.Lines)
+                                    {
+                                        <tr>
+                                            <td>@line.AccountCode - @line.AccountName</td>
+                                            <td style="text-align:right">@Display.Rupiah(line.Amount)</td>
+                                        </tr>
+                                    }
+                                }
+                                <tr>
+                                    <td>Laba / (Rugi) Bersih Berjalan</td>
+                                    <td style="text-align:right">@Display.Rupiah(_data.CurrentPeriodNetIncome)</td>
+                                </tr>
+                            </tbody>
+                            <tfoot>
+                                <tr style="font-weight:bold; background-color: var(--mud-palette-background-gray);">
+                                    <td>Total Ekuitas</td>
+                                    <td style="text-align:right">@Display.Rupiah(_data.TotalEquity)</td>
+                                </tr>
+                            </tfoot>
+                        </MudSimpleTable>
+                    </div>
+                }
+
+                <div class="d-flex justify-space-between align-center pa-3 mt-4" style="background-color: var(--mud-palette-background-gray); border-radius: var(--mud-default-borderradius); border: 2px solid var(--mud-palette-primary);">
+                    <MudText Typo="Typo.subtitle1"><strong>TOTAL LIABILITAS & EKUITAS</strong></MudText>
+                    <MudText Typo="Typo.h6"><strong>@Display.Rupiah(_data.TotalLiabilities + _data.TotalEquity)</strong></MudText>
+                </div>
+            </MudItem>
+        </MudGrid>
+    </MudPaper>
+}
+
+@code {
+    private DateTime? _asOfDate = DateTime.Today;
+    private BalanceSheetDto? _data;
+    private string? _errorMessage;
+    private bool _loading = true;
+
+    private bool IsBalanced => _data is not null && _data.TotalAssets == (_data.TotalLiabilities + _data.TotalEquity);
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadAsync();
+    }
+
+    private void OnDateChanged(DateTime? date)
+    {
+        _asOfDate = date;
+    }
+
+    private async Task LoadAsync()
+    {
+        _loading = true;
+        _errorMessage = null;
+
+        var targetDate = _asOfDate ?? DateTime.Today;
+        var result = await FinancialReportService.GetBalanceSheetAsync(targetDate);
+        if (result.IsSuccess)
+        {
+            _data = result.Value;
+        }
+        else
+        {
+            _data = null;
+            _errorMessage = result.Error;
+            Snackbar.Add(result.Error!, Severity.Error);
+        }
+
+        _loading = false;
+    }
+
+    private async Task PrintAsync() => await JS.InvokeVoidAsync("window.print");
+}

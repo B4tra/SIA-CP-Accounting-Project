@@ -1,0 +1,240 @@
+@page "/admin/users"
+@attribute [Authorize(Policy = Policies.RequireAdmin)]
+
+@using Microsoft.AspNetCore.Authorization
+@using SIA.Application.Common.Constants
+@using SIA.Application.Common.Interfaces
+@using SIA.Application.DTOs.System
+@using SIA.Application.Services.System
+@using SIA.Web.Formatting
+@inject IUserService UserService
+@inject IDialogService DialogService
+@inject ISnackbar Snackbar
+@inject ICurrentUserService CurrentUser
+
+<PageTitle>Manajemen Pengguna - SIA</PageTitle>
+
+<div class="d-flex flex-wrap align-center justify-space-between gap-2">
+    <div>
+        <h1 class="sia-page-title">Manajemen Pengguna</h1>
+        <MudText Typo="Typo.body2" Class="mud-text-secondary">
+            Kelola akun pengguna, hak akses role (Admin, Staf, Viewer), status aktif, dan reset kata sandi.
+        </MudText>
+    </div>
+    <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Add" OnClick="OpenCreateDialogAsync">
+        Tambah Pengguna
+    </MudButton>
+</div>
+
+<MudPaper Outlined="true" Class="sia-card pa-4 mt-6">
+    <MudGrid Spacing="2" Class="align-center mb-4">
+        <MudItem xs="12" sm="6" md="4">
+            <MudTextField T="string" Value="@_search" ValueChanged="OnSearchChanged"
+                          Placeholder="Cari nama, email, username..."
+                          Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Search"
+                          Immediate="true" Clearable="true" Variant="Variant.Outlined" Margin="Margin.Dense" />
+        </MudItem>
+        <MudItem xs="12" sm="6" md="3">
+            <MudSelect T="bool?" Value="@_activeFilter" ValueChanged="OnActiveFilterChanged"
+                       Label="Status" Variant="Variant.Outlined" Margin="Margin.Dense">
+                <MudSelectItem T="bool?" Value="@((bool?)null)">Semua Status</MudSelectItem>
+                <MudSelectItem T="bool?" Value="@(true)">Aktif</MudSelectItem>
+                <MudSelectItem T="bool?" Value="@(false)">Nonaktif</MudSelectItem>
+            </MudSelect>
+        </MudItem>
+    </MudGrid>
+
+    <MudTable Items="_users" Loading="_loading" Hover="true" Dense="true" Class="sia-table" Elevation="0">
+        <HeaderContent>
+            <MudTh>Nama Pengguna</MudTh>
+            <MudTh>Nama Lengkap</MudTh>
+            <MudTh>Email</MudTh>
+            <MudTh>Role</MudTh>
+            <MudTh>Status</MudTh>
+            <MudTh>Terdaftar</MudTh>
+            <MudTh Style="text-align: right;">Aksi</MudTh>
+        </HeaderContent>
+        <RowTemplate>
+            <MudTd DataLabel="Nama Pengguna">
+                <strong>@context.UserName</strong>
+            </MudTd>
+            <MudTd DataLabel="Nama Lengkap">@context.FullName</MudTd>
+            <MudTd DataLabel="Email">@context.Email</MudTd>
+            <MudTd DataLabel="Role">
+                <MudChip T="string" Color="@GetRoleColor(context.Role)" Size="Size.Small">
+                    @context.Role
+                </MudChip>
+            </MudTd>
+            <MudTd DataLabel="Status">
+                <MudChip T="string" Variant="Variant.Outlined" Color="@(context.IsActive ? Color.Success : Color.Default)" Size="Size.Small">
+                    @(context.IsActive ? "Aktif" : "Nonaktif")
+                </MudChip>
+            </MudTd>
+            <MudTd DataLabel="Terdaftar">@Display.Date(context.CreatedAt)</MudTd>
+            <MudTd DataLabel="Aksi" Style="text-align: right;">
+                <MudTooltip Text="Ubah Profil & Role">
+                    <MudIconButton Icon="@Icons.Material.Outlined.Edit" Size="Size.Small" OnClick="() => OpenEditDialogAsync(context)" />
+                </MudTooltip>
+                <MudTooltip Text="Reset Kata Sandi">
+                    <MudIconButton Icon="@Icons.Material.Outlined.LockReset" Color="Color.Warning" Size="Size.Small" OnClick="() => OpenResetPasswordDialogAsync(context)" />
+                </MudTooltip>
+                @if (string.Equals(context.Id, _currentUserId, StringComparison.Ordinal))
+                {
+                    <MudTooltip Text="Anda tidak dapat menonaktifkan akun sendiri.">
+                        <MudIconButton Icon="@Icons.Material.Outlined.CheckCircle" Color="Color.Success" Disabled="true" Size="Size.Small" />
+                    </MudTooltip>
+                }
+                else
+                {
+                    <MudTooltip Text="@(context.IsActive ? "Nonaktifkan Pengguna" : "Aktifkan Pengguna")">
+                        <MudIconButton Icon="@(context.IsActive ? Icons.Material.Outlined.Block : Icons.Material.Outlined.CheckCircle)"
+                                       Color="@(context.IsActive ? Color.Error : Color.Success)"
+                                       Size="Size.Small"
+                                       OnClick="() => ToggleActiveAsync(context)" />
+                    </MudTooltip>
+                }
+            </MudTd>
+        </RowTemplate>
+        <NoRecordsContent>
+            <MudText Class="pa-4 text-center">Tidak ada data pengguna.</MudText>
+        </NoRecordsContent>
+        <LoadingContent>
+            <MudText Class="pa-4 text-center">Memuat data pengguna...</MudText>
+        </LoadingContent>
+    </MudTable>
+</MudPaper>
+
+@code {
+    private List<UserDto> _users = new();
+    private bool _loading = true;
+    private string? _search;
+    private bool? _activeFilter;
+    private string? _currentUserId;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _currentUserId = CurrentUser.UserId;
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        _loading = true;
+        var result = await UserService.GetAllAsync(_search, _activeFilter);
+        _loading = false;
+
+        if (result.IsSuccess)
+        {
+            _users = result.Value!.ToList();
+        }
+        else
+        {
+            Snackbar.Add(result.Error ?? "Gagal memuat pengguna.", Severity.Error);
+        }
+    }
+
+    private async Task OnSearchChanged(string? value)
+    {
+        _search = value;
+        await LoadAsync();
+    }
+
+    private async Task OnActiveFilterChanged(bool? value)
+    {
+        _activeFilter = value;
+        await LoadAsync();
+    }
+
+    private static Color GetRoleColor(string role) => role switch
+    {
+        Roles.Admin => Color.Primary,
+        Roles.Staff => Color.Secondary,
+        _ => Color.Default,
+    };
+
+    private async Task OpenCreateDialogAsync()
+    {
+        var parameters = new DialogParameters<UserFormDialog>
+        {
+            { x => x.CreateModel, new CreateUserDto() }
+        };
+        var options = new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true, CloseOnEscapeKey = true };
+        var dialog = await DialogService.ShowAsync<UserFormDialog>("Tambah Pengguna Baru", parameters, options);
+        var result = await dialog.Result;
+
+        if (result is { Canceled: false })
+        {
+            Snackbar.Add("Pengguna berhasil ditambahkan.", Severity.Success);
+            await LoadAsync();
+        }
+    }
+
+    private async Task OpenEditDialogAsync(UserDto user)
+    {
+        var updateModel = new UpdateUserDto
+        {
+            Id = user.Id,
+            FullName = user.FullName,
+            Email = user.Email,
+            PhoneNumber = user.PhoneNumber,
+            Role = user.Role,
+            IsActive = user.IsActive,
+        };
+
+        var isSelf = string.Equals(user.Id, _currentUserId, StringComparison.Ordinal);
+        var parameters = new DialogParameters<UserFormDialog>
+        {
+            { x => x.UpdateModel, updateModel },
+            { x => x.IsSelf, isSelf }
+        };
+        var options = new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true, CloseOnEscapeKey = true };
+        var dialog = await DialogService.ShowAsync<UserFormDialog>("Ubah Pengguna", parameters, options);
+        var result = await dialog.Result;
+
+        if (result is { Canceled: false })
+        {
+            Snackbar.Add("Data pengguna berhasil diperbarui.", Severity.Success);
+            await LoadAsync();
+        }
+    }
+
+    private async Task OpenResetPasswordDialogAsync(UserDto user)
+    {
+        var parameters = new DialogParameters<ResetPasswordDialog>
+        {
+            { x => x.UserId, user.Id },
+            { x => x.UserName, user.UserName },
+            { x => x.FullName, user.FullName }
+        };
+        var options = new DialogOptions { MaxWidth = MaxWidth.ExtraSmall, FullWidth = true, CloseOnEscapeKey = true };
+        var dialog = await DialogService.ShowAsync<ResetPasswordDialog>("Reset Kata Sandi", parameters, options);
+        var result = await dialog.Result;
+
+        if (result is { Canceled: false })
+        {
+            Snackbar.Add("Kata sandi berhasil direset.", Severity.Success);
+        }
+    }
+
+    private async Task ToggleActiveAsync(UserDto user)
+    {
+        var actionText = user.IsActive ? "menonaktifkan" : "mengaktifkan";
+        var confirmed = await DialogService.ShowMessageBox(
+            "Konfirmasi Status Pengguna",
+            $"Apakah Anda yakin ingin {actionText} akun '{user.FullName}' ({user.Email})?",
+            yesText: "Ya, Lanjutkan", cancelText: "Batal");
+
+        if (confirmed != true) return;
+
+        var result = await UserService.SetActiveAsync(user.Id, !user.IsActive);
+        if (result.IsSuccess)
+        {
+            Snackbar.Add($"Pengguna berhasil {(user.IsActive ? "dinonaktifkan" : "diaktifkan")}.", Severity.Success);
+            await LoadAsync();
+        }
+        else
+        {
+            Snackbar.Add(result.Error ?? "Gagal memperbarui status pengguna.", Severity.Error);
+        }
+    }
+}

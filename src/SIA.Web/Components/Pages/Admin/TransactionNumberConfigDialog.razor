@@ -1,0 +1,107 @@
+@using System.Globalization
+@using System.Text.RegularExpressions
+@using SIA.Application.DTOs.System
+@using SIA.Application.Services.System
+@inject ITransactionNumberService TransactionNumberService
+
+<EditForm Model="Model" OnValidSubmit="SubmitAsync">
+    <DataAnnotationsValidator />
+    <MudDialog>
+        <DialogContent>
+            @if (_errors.Count > 0)
+            {
+                <MudAlert Severity="Severity.Error" Variant="Variant.Outlined" Dense="true" Class="mb-4">
+                    @foreach (var error in _errors)
+                    {
+                        <div>@error</div>
+                    }
+                </MudAlert>
+            }
+
+            <MudGrid Spacing="2">
+                <MudItem xs="12" sm="4">
+                    <MudTextField @bind-Value="Model.Prefix" For="@(() => Model.Prefix)"
+                                  Label="Prefix" Variant="Variant.Outlined" Required="true" MaxLength="10" />
+                </MudItem>
+                <MudItem xs="12" sm="8">
+                    <MudTextField @bind-Value="Model.Format" For="@(() => Model.Format)"
+                                  Label="Format Penomoran" Variant="Variant.Outlined" Required="true" MaxLength="50"
+                                  HelperText="Placeholder yang didukung: {Prefix}, {Year}, {Seq:0000}" />
+                </MudItem>
+                <MudItem xs="12">
+                    <MudPaper Outlined="true" Class="pa-3 mt-2" Style="background-color: var(--mud-palette-background-gray);">
+                        <MudText Typo="Typo.caption" Class="mud-text-secondary">Pratinjau penomoran nomor berikutnya:</MudText>
+                        <MudText Typo="Typo.subtitle1" Class="mt-1">
+                            <code>@RenderPreview()</code>
+                        </MudText>
+                    </MudPaper>
+                </MudItem>
+            </MudGrid>
+        </DialogContent>
+        <DialogActions>
+            <MudButton OnClick="Cancel" Disabled="_saving">Batal</MudButton>
+            <MudButton ButtonType="ButtonType.Submit" Variant="Variant.Filled" Color="Color.Primary" Disabled="_saving">
+                @(_saving ? "Menyimpan..." : "Simpan")
+            </MudButton>
+        </DialogActions>
+    </MudDialog>
+</EditForm>
+
+@code {
+    [CascadingParameter] private IMudDialogInstance MudDialog { get; set; } = default!;
+
+    [Parameter] public TransactionNumberConfigDto Config { get; set; } = new();
+
+    private UpdateTransactionNumberConfigDto Model { get; set; } = new();
+    private List<string> _errors = new();
+    private bool _saving;
+
+    protected override void OnInitialized()
+    {
+        Model.Id = Config.Id;
+        Model.Prefix = Config.Prefix;
+        Model.Format = Config.Format;
+    }
+
+    private static readonly Regex SeqPattern = new(@"\{Seq(?::(?<fmt>[^}]*))?\}", RegexOptions.Compiled);
+
+    private string RenderPreview()
+    {
+        try
+        {
+            var format = string.IsNullOrWhiteSpace(Model.Format) ? "{Prefix}-{Year}-{Seq:0000}" : Model.Format;
+            var result = format
+                .Replace("{Prefix}", Model.Prefix ?? string.Empty, StringComparison.Ordinal)
+                .Replace("{Year}", Config.Year.ToString(CultureInfo.InvariantCulture), StringComparison.Ordinal);
+
+            var seq = Config.CurrentSequence + 1;
+            return SeqPattern.Replace(result, m =>
+            {
+                var fmt = m.Groups["fmt"];
+                return fmt.Success && fmt.Value.Length > 0
+                    ? seq.ToString(fmt.Value, CultureInfo.InvariantCulture)
+                    : seq.ToString(CultureInfo.InvariantCulture);
+            });
+        }
+        catch
+        {
+            return "(Format belum valid)";
+        }
+    }
+
+    private async Task SubmitAsync()
+    {
+        _saving = true;
+        _errors.Clear();
+
+        var result = await TransactionNumberService.UpdateConfigAsync(Model);
+        _saving = false;
+
+        if (result.IsSuccess)
+            MudDialog.Close(DialogResult.Ok(result.Value));
+        else
+            _errors = result.Errors.ToList();
+    }
+
+    private void Cancel() => MudDialog.Cancel();
+}

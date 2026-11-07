@@ -1,0 +1,145 @@
+@using SIA.Application.Common.Constants
+@using SIA.Application.DTOs.System
+@using SIA.Application.Services.System
+@inject IUserService UserService
+
+<EditForm Model="@CurrentModel" OnValidSubmit="SubmitAsync">
+    <DataAnnotationsValidator />
+    <MudDialog>
+        <DialogContent>
+            @if (_errors.Count > 0)
+            {
+                <MudAlert Severity="Severity.Error" Variant="Variant.Outlined" Dense="true" Class="mb-4">
+                    @foreach (var error in _errors)
+                    {
+                        <div>@error</div>
+                    }
+                </MudAlert>
+            }
+
+            @if (CreateModel != null)
+            {
+                <MudGrid Spacing="2">
+                    <MudItem xs="12" sm="6">
+                        <MudTextField @bind-Value="CreateModel.FullName" For="@(() => CreateModel.FullName)"
+                                      Label="Nama lengkap" Variant="Variant.Outlined" Required="true" />
+                    </MudItem>
+                    <MudItem xs="12" sm="6">
+                        <MudTextField @bind-Value="CreateModel.Email" For="@(() => CreateModel.Email)"
+                                      Label="Email" Placeholder="mis. nama@sia.local" Variant="Variant.Outlined" Required="true" />
+                    </MudItem>
+                    <MudItem xs="12" sm="6">
+                        <MudTextField @bind-Value="CreateModel.PhoneNumber" For="@(() => CreateModel.PhoneNumber)"
+                                      Label="Nomor telepon" Variant="Variant.Outlined" />
+                    </MudItem>
+                    <MudItem xs="12" sm="6">
+                        <MudSelect T="string" @bind-Value="CreateModel.Role" Label="Role" Variant="Variant.Outlined" Required="true">
+                            @foreach (var r in Roles.All)
+                            {
+                                <MudSelectItem Value="@r">@r</MudSelectItem>
+                            }
+                        </MudSelect>
+                    </MudItem>
+                    <MudItem xs="12" sm="6">
+                        <MudTextField @bind-Value="CreateModel.Password" For="@(() => CreateModel.Password)"
+                                      InputType="InputType.Password" Label="Kata sandi" Variant="Variant.Outlined" Required="true"
+                                      HelperText="Minimal 8 karakter (huruf besar, huruf kecil, angka)" />
+                    </MudItem>
+                    <MudItem xs="12" sm="6">
+                        <MudTextField @bind-Value="CreateModel.ConfirmPassword" For="@(() => CreateModel.ConfirmPassword)"
+                                      InputType="InputType.Password" Label="Konfirmasi kata sandi" Variant="Variant.Outlined" Required="true" />
+                    </MudItem>
+                    <MudItem xs="12">
+                        <MudSwitch T="bool" @bind-Value="CreateModel.IsActive" Color="Color.Secondary" Label="Status aktif" />
+                    </MudItem>
+                </MudGrid>
+            }
+            else if (UpdateModel != null)
+            {
+                <MudGrid Spacing="2">
+                    <MudItem xs="12" sm="6">
+                        <MudTextField @bind-Value="UpdateModel.FullName" For="@(() => UpdateModel.FullName)"
+                                      Label="Nama lengkap" Variant="Variant.Outlined" Required="true" />
+                    </MudItem>
+                    <MudItem xs="12" sm="6">
+                        <MudTextField @bind-Value="UpdateModel.Email" For="@(() => UpdateModel.Email)"
+                                      Label="Email" Variant="Variant.Outlined" Required="true" />
+                    </MudItem>
+                    <MudItem xs="12" sm="6">
+                        <MudTextField @bind-Value="UpdateModel.PhoneNumber" For="@(() => UpdateModel.PhoneNumber)"
+                                      Label="Nomor telepon" Variant="Variant.Outlined" />
+                    </MudItem>
+                    <MudItem xs="12" sm="6">
+                        <MudSelect T="string" @bind-Value="UpdateModel.Role" Label="Role" Variant="Variant.Outlined"
+                                   Disabled="@IsSelf"
+                                   HelperText="@(IsSelf ? "Anda tidak dapat mengubah role akun Anda sendiri." : null)">
+                            @foreach (var r in Roles.All)
+                            {
+                                <MudSelectItem Value="@r">@r</MudSelectItem>
+                            }
+                        </MudSelect>
+                    </MudItem>
+                    <MudItem xs="12">
+                        <MudSwitch T="bool" @bind-Value="UpdateModel.IsActive" Color="Color.Secondary" Label="Status aktif"
+                                   Disabled="@IsSelf" />
+                        @if (IsSelf)
+                        {
+                            <MudText Typo="Typo.caption" Color="Color.Error" Class="d-block mt-1">
+                                Anda tidak dapat menonaktifkan akun Anda sendiri.
+                            </MudText>
+                        }
+                    </MudItem>
+                </MudGrid>
+            }
+        </DialogContent>
+        <DialogActions>
+            <MudButton OnClick="Cancel" Disabled="_saving">Batal</MudButton>
+            <MudButton ButtonType="ButtonType.Submit" Variant="Variant.Filled" Color="Color.Primary" Disabled="_saving">
+                @(_saving ? "Menyimpan..." : "Simpan")
+            </MudButton>
+        </DialogActions>
+    </MudDialog>
+</EditForm>
+
+@code {
+    [CascadingParameter] private IMudDialogInstance MudDialog { get; set; } = default!;
+
+    [Parameter] public CreateUserDto? CreateModel { get; set; }
+    [Parameter] public UpdateUserDto? UpdateModel { get; set; }
+    [Parameter] public bool IsSelf { get; set; }
+
+    private object CurrentModel => (object?)CreateModel ?? UpdateModel ?? new object();
+    private List<string> _errors = new();
+    private bool _saving;
+
+    private async Task SubmitAsync()
+    {
+        _saving = true;
+        _errors.Clear();
+
+        if (CreateModel != null)
+        {
+            var result = await UserService.CreateAsync(CreateModel);
+            _saving = false;
+            if (result.IsSuccess)
+                MudDialog.Close(DialogResult.Ok(result.Value));
+            else
+                _errors = result.Errors.ToList();
+        }
+        else if (UpdateModel != null)
+        {
+            var result = await UserService.UpdateAsync(UpdateModel);
+            _saving = false;
+            if (result.IsSuccess)
+                MudDialog.Close(DialogResult.Ok(result.Value));
+            else
+                _errors = result.Errors.ToList();
+        }
+        else
+        {
+            _saving = false;
+        }
+    }
+
+    private void Cancel() => MudDialog.Cancel();
+}
