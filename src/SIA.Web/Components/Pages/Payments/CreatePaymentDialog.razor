@@ -1,0 +1,388 @@
+@using System.ComponentModel.DataAnnotations
+@using SIA.Application.DTOs.Payments
+@using SIA.Application.Services.Payments
+@using SIA.Domain.Enums
+@using SIA.Web.Formatting
+@inject IPaymentService PaymentService
+
+<EditForm Model="_model" OnValidSubmit="SubmitAsync">
+    <DataAnnotationsValidator />
+    <MudDialog>
+        <TitleContent>
+            <div class="d-flex align-center gap-2">
+                <MudIcon Icon="@Icons.Material.Outlined.Payments" Color="Color.Primary" />
+                <MudText Typo="Typo.h6">@(IsPreselected ? "Catat Pembayaran" : "Catat Pembayaran Baru")</MudText>
+            </div>
+        </TitleContent>
+        <DialogContent>
+            @if (_errors.Count > 0)
+            {
+                <MudAlert Severity="Severity.Error" Variant="Variant.Outlined" Dense="true" Class="mb-4">
+                    @foreach (var error in _errors)
+                    {
+                        <div>@error</div>
+                    }
+                </MudAlert>
+            }
+
+            @if (IsPreselected && PreselectedItem != null)
+            {
+                @* Mode Preselected: Dokumen terkunci dari baris tabel Tagihan Belum Lunas *@
+                <MudPaper Outlined="true" Class="pa-3 mb-4">
+                    <div class="d-flex justify-space-between align-center mb-1">
+                        <MudText Typo="Typo.body2" Class="mud-text-secondary">No. Dokumen</MudText>
+                        <MudText Typo="Typo.body2"><strong>@PreselectedItem.ReferenceNumber</strong></MudText>
+                    </div>
+                    <div class="d-flex justify-space-between align-center mb-1">
+                        <MudText Typo="Typo.body2" Class="mud-text-secondary">Jenis Transaksi</MudText>
+                        <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined"
+                                 Color="@(PreselectedItem.ReferenceType == ReferenceType.Sale ? Color.Secondary : Color.Primary)">
+                            @Display.Label(PreselectedItem.ReferenceType)
+                        </MudChip>
+                    </div>
+                    <div class="d-flex justify-space-between align-center mb-1">
+                        <MudText Typo="Typo.body2" Class="mud-text-secondary">
+                            @(PreselectedItem.ReferenceType == ReferenceType.Sale ? "Pelanggan" : "Pemasok")
+                        </MudText>
+                        <MudText Typo="Typo.body2">@PreselectedItem.PartyName</MudText>
+                    </div>
+                    <div class="d-flex justify-space-between align-center mb-1">
+                        <MudText Typo="Typo.body2" Class="mud-text-secondary">Tanggal Transaksi</MudText>
+                        <MudText Typo="Typo.body2">@Display.Date(PreselectedItem.TransactionDate)</MudText>
+                    </div>
+                    @if (PreselectedItem.DueDate.HasValue)
+                    {
+                        <div class="d-flex justify-space-between align-center mb-1">
+                            <MudText Typo="Typo.body2" Class="mud-text-secondary">Jatuh Tempo</MudText>
+                            <MudText Typo="Typo.body2">
+                                @Display.Date(PreselectedItem.DueDate)
+                                @if (PreselectedItem.DueDate.Value.Date < DateTime.Today)
+                                {
+                                    <MudChip T="string" Size="Size.Small" Color="Color.Error" Variant="Variant.Filled" Class="ms-1">Lewat JT</MudChip>
+                                }
+                            </MudText>
+                        </div>
+                    }
+                    <div class="d-flex justify-space-between align-center mb-1">
+                        <MudText Typo="Typo.body2" Class="mud-text-secondary">Total Tagihan</MudText>
+                        <MudText Typo="Typo.body2">@Display.Rupiah(PreselectedItem.TotalAmount)</MudText>
+                    </div>
+                    <div class="d-flex justify-space-between align-center mb-1">
+                        <MudText Typo="Typo.body2" Class="mud-text-secondary">Sudah Dibayar</MudText>
+                        <MudText Typo="Typo.body2">@Display.Rupiah(PreselectedItem.PaidAmount)</MudText>
+                    </div>
+                    <MudDivider Class="my-2" />
+                    <div class="d-flex justify-space-between align-center">
+                        <MudText Typo="Typo.subtitle2">Sisa Tagihan</MudText>
+                        <MudText Typo="Typo.subtitle2" Color="Color.Error"><strong>@Display.Rupiah(PreselectedItem.RemainingAmount)</strong></MudText>
+                    </div>
+                </MudPaper>
+            }
+            else
+            {
+                @* Mode Bebas: Pilih Jenis Referensi dan Dokumen Belum Lunas *@
+                @if (_loadingOutstanding)
+                {
+                    <div class="d-flex justify-center align-center pa-4">
+                        <MudProgressCircular Color="Color.Primary" Indeterminate="true" Size="Size.Medium" />
+                        <MudText Typo="Typo.body2" Class="ms-2">Memuat daftar tagihan belum lunas...</MudText>
+                    </div>
+                }
+                else
+                {
+                    <MudGrid Spacing="2" Class="mb-3">
+                        <MudItem xs="12" sm="5">
+                            <MudSelect T="ReferenceType" Value="_selectedReferenceType" ValueChanged="OnReferenceTypeChanged"
+                                       Label="Jenis Referensi" Variant="Variant.Outlined">
+                                <MudSelectItem Value="ReferenceType.Sale">@Display.Label(ReferenceType.Sale)</MudSelectItem>
+                                <MudSelectItem Value="ReferenceType.PurchaseOrder">@Display.Label(ReferenceType.PurchaseOrder)</MudSelectItem>
+                            </MudSelect>
+                        </MudItem>
+                        <MudItem xs="12" sm="7">
+                            <MudSelect T="int?" Value="_selectedReferenceId" ValueChanged="OnReferenceSelected"
+                                       Label="Pilih Dokumen Belum Lunas" Variant="Variant.Outlined"
+                                       Placeholder="-- Pilih Dokumen --" Clearable="true" Required="true">
+                                @if (_filteredOutstanding.Count == 0)
+                                {
+                                    <MudSelectItem T="int?" Value="@((int?)null)" Disabled="true">
+                                        Tidak ada tagihan belum lunas
+                                    </MudSelectItem>
+                                }
+                                else
+                                {
+                                    @foreach (var doc in _filteredOutstanding)
+                                    {
+                                        <MudSelectItem T="int?" Value="@((int?)doc.ReferenceId)">
+                                            @doc.ReferenceNumber — @doc.PartyName (@Display.Rupiah(doc.RemainingAmount))
+                                        </MudSelectItem>
+                                    }
+                                }
+                            </MudSelect>
+                        </MudItem>
+                    </MudGrid>
+
+                    @if (_selectedDoc != null)
+                    {
+                        <MudPaper Outlined="true" Class="pa-3 mb-4">
+                            <div class="d-flex justify-space-between align-center mb-1">
+                                <MudText Typo="Typo.body2" Class="mud-text-secondary">No. Dokumen</MudText>
+                                <MudText Typo="Typo.body2"><strong>@_selectedDoc.ReferenceNumber</strong></MudText>
+                            </div>
+                            <div class="d-flex justify-space-between align-center mb-1">
+                                <MudText Typo="Typo.body2" Class="mud-text-secondary">
+                                    @(_selectedDoc.ReferenceType == ReferenceType.Sale ? "Pelanggan" : "Pemasok")
+                                </MudText>
+                                <MudText Typo="Typo.body2">@_selectedDoc.PartyName</MudText>
+                            </div>
+                            <div class="d-flex justify-space-between align-center mb-1">
+                                <MudText Typo="Typo.body2" Class="mud-text-secondary">Tanggal Transaksi</MudText>
+                                <MudText Typo="Typo.body2">@Display.Date(_selectedDoc.TransactionDate)</MudText>
+                            </div>
+                            @if (_selectedDoc.DueDate.HasValue)
+                            {
+                                <div class="d-flex justify-space-between align-center mb-1">
+                                    <MudText Typo="Typo.body2" Class="mud-text-secondary">Jatuh Tempo</MudText>
+                                    <MudText Typo="Typo.body2">
+                                        @Display.Date(_selectedDoc.DueDate)
+                                        @if (_selectedDoc.DueDate.Value.Date < DateTime.Today)
+                                        {
+                                            <MudChip T="string" Size="Size.Small" Color="Color.Error" Variant="Variant.Filled" Class="ms-1">Lewat JT</MudChip>
+                                        }
+                                    </MudText>
+                                </div>
+                            }
+                            <div class="d-flex justify-space-between align-center mb-1">
+                                <MudText Typo="Typo.body2" Class="mud-text-secondary">Total Tagihan</MudText>
+                                <MudText Typo="Typo.body2">@Display.Rupiah(_selectedDoc.TotalAmount)</MudText>
+                            </div>
+                            <div class="d-flex justify-space-between align-center mb-1">
+                                <MudText Typo="Typo.body2" Class="mud-text-secondary">Sudah Dibayar</MudText>
+                                <MudText Typo="Typo.body2">@Display.Rupiah(_selectedDoc.PaidAmount)</MudText>
+                            </div>
+                            <MudDivider Class="my-2" />
+                            <div class="d-flex justify-space-between align-center">
+                                <MudText Typo="Typo.subtitle2">Sisa Tagihan</MudText>
+                                <MudText Typo="Typo.subtitle2" Color="Color.Error"><strong>@Display.Rupiah(_selectedDoc.RemainingAmount)</strong></MudText>
+                            </div>
+                        </MudPaper>
+                    }
+                    else if (_filteredOutstanding.Count > 0)
+                    {
+                        <MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Dense="true" Class="mb-4">
+                            Silakan pilih dokumen transaksi yang akan dibayar pada dropdown di atas.
+                        </MudAlert>
+                    }
+                    else
+                    {
+                        <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined" Dense="true" Class="mb-4">
+                            Tidak ditemukan tagihan belum lunas untuk jenis @Display.Label(_selectedReferenceType).
+                        </MudAlert>
+                    }
+                }
+            }
+
+            <MudGrid Spacing="2">
+                <MudItem xs="12" sm="6">
+                    <MudDatePicker Label="Tanggal Pembayaran" @bind-Date="_paymentDate" DateFormat="dd/MM/yyyy"
+                                   Variant="Variant.Outlined" Required="true" />
+                </MudItem>
+                <MudItem xs="12" sm="6">
+                    <MudSelect T="PaymentMethod" @bind-Value="_model.PaymentMethod" Label="Metode Pembayaran" Variant="Variant.Outlined">
+                        @foreach (var method in Enum.GetValues<PaymentMethod>())
+                        {
+                            <MudSelectItem T="PaymentMethod" Value="@method">@Display.Label(method)</MudSelectItem>
+                        }
+                    </MudSelect>
+                </MudItem>
+                <MudItem xs="12">
+                    <MudNumericField T="decimal" @bind-Value="_model.Amount" For="@(() => _model.Amount)" Label="Jumlah Pembayaran"
+                                     Min="0.01m" Max="@(MaxAmount > 0 ? MaxAmount : 79228162514264337593543950335m)"
+                                     Format="N0" Culture="Display.Culture"
+                                     Adornment="Adornment.Start" AdornmentText="Rp" HideSpinButtons="true"
+                                     Variant="Variant.Outlined" Required="true" />
+                    @if (MaxAmount > 0)
+                    {
+                        <div class="d-flex justify-space-between align-center mt-1">
+                            <MudText Typo="Typo.caption" Class="mud-text-secondary">
+                                Sisa Tagihan: @Display.Rupiah(MaxAmount)
+                            </MudText>
+                            <MudButton Variant="Variant.Outlined" Color="Color.Secondary" Size="Size.Small"
+                                       OnClick="SetFullPayment" StartIcon="@Icons.Material.Outlined.CheckCircle">
+                                Bayar Penuh (@Display.Rupiah(MaxAmount))
+                            </MudButton>
+                        </div>
+                    }
+                </MudItem>
+                <MudItem xs="12">
+                    <MudTextField @bind-Value="_model.Notes" For="@(() => _model.Notes)" Label="Catatan (opsional)"
+                                  Lines="2" Variant="Variant.Outlined" Placeholder="Keterangan transfer, no. referensi bank, dsb." />
+                </MudItem>
+            </MudGrid>
+        </DialogContent>
+        <DialogActions>
+            <MudButton OnClick="Cancel" Disabled="_saving">Batal</MudButton>
+            <MudButton ButtonType="ButtonType.Submit" Variant="Variant.Filled" Color="Color.Primary"
+                       Disabled="_saving || (_model.ReferenceId <= 0 && !IsPreselected)">
+                @if (_saving)
+                {
+                    <MudProgressCircular Class="ms-n1 me-2" Size="Size.Small" Indeterminate="true" />
+                    <span>Menyimpan...</span>
+                }
+                else
+                {
+                    <span>Simpan Pembayaran</span>
+                }
+            </MudButton>
+        </DialogActions>
+    </MudDialog>
+</EditForm>
+
+@code {
+    [CascadingParameter] private IMudDialogInstance MudDialog { get; set; } = default!;
+
+    [Parameter] public OutstandingDto? PreselectedItem { get; set; }
+
+    private readonly CreatePaymentDto _model = new();
+    private DateTime? _paymentDate = DateTime.Today;
+    private List<string> _errors = new();
+    private bool _saving;
+    private bool _loadingOutstanding;
+
+    // State untuk mode bebas
+    private ReferenceType _selectedReferenceType = ReferenceType.Sale;
+    private int? _selectedReferenceId;
+    private List<OutstandingDto> _allOutstanding = new();
+    private List<OutstandingDto> _filteredOutstanding = new();
+    private OutstandingDto? _selectedDoc;
+
+    private bool IsPreselected => PreselectedItem != null;
+
+    private decimal MaxAmount => _selectedDoc?.RemainingAmount ?? (PreselectedItem?.RemainingAmount ?? 0m);
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (IsPreselected && PreselectedItem != null)
+        {
+            ApplyDocument(PreselectedItem);
+        }
+        else
+        {
+            await LoadOutstandingItemsAsync();
+        }
+    }
+
+    private void ApplyDocument(OutstandingDto doc)
+    {
+        _selectedDoc = doc;
+        _model.ReferenceType = doc.ReferenceType;
+        _model.ReferenceId = doc.ReferenceId;
+        _model.Amount = doc.RemainingAmount;
+        _model.PaymentMethod = PaymentMethod.Cash;
+        _paymentDate = DateTime.Today < doc.TransactionDate.Date ? doc.TransactionDate.Date : DateTime.Today;
+    }
+
+    private async Task LoadOutstandingItemsAsync()
+    {
+        _loadingOutstanding = true;
+        _errors.Clear();
+
+        var result = await PaymentService.GetOutstandingAsync();
+        if (result.IsSuccess && result.Value != null)
+        {
+            _allOutstanding = result.Value.ToList();
+            FilterOutstanding();
+        }
+        else
+        {
+            _errors = result.Errors.ToList();
+        }
+
+        _loadingOutstanding = false;
+    }
+
+    private void OnReferenceTypeChanged(ReferenceType type)
+    {
+        _selectedReferenceType = type;
+        _selectedReferenceId = null;
+        _selectedDoc = null;
+        _model.ReferenceType = type;
+        _model.ReferenceId = 0;
+        _model.Amount = 0m;
+        FilterOutstanding();
+    }
+
+    private void FilterOutstanding()
+    {
+        _filteredOutstanding = _allOutstanding
+            .Where(x => x.ReferenceType == _selectedReferenceType)
+            .OrderBy(x => x.DueDate ?? x.TransactionDate)
+            .ToList();
+    }
+
+    private void OnReferenceSelected(int? referenceId)
+    {
+        _selectedReferenceId = referenceId;
+        if (referenceId.HasValue && referenceId.Value > 0)
+        {
+            var doc = _filteredOutstanding.FirstOrDefault(x => x.ReferenceId == referenceId.Value);
+            if (doc != null)
+            {
+                ApplyDocument(doc);
+            }
+        }
+        else
+        {
+            _selectedDoc = null;
+            _model.ReferenceId = 0;
+            _model.Amount = 0m;
+        }
+    }
+
+    private void SetFullPayment()
+    {
+        if (MaxAmount > 0)
+        {
+            _model.Amount = MaxAmount;
+        }
+    }
+
+    private async Task SubmitAsync()
+    {
+        _errors.Clear();
+
+        if (_model.ReferenceId <= 0)
+        {
+            _errors.Add("Pilih dokumen transaksi yang akan dibayar terlebih dahulu.");
+            return;
+        }
+
+        if (_model.Amount <= 0)
+        {
+            _errors.Add("Jumlah pembayaran harus lebih dari 0.");
+            return;
+        }
+
+        if (_model.Amount > MaxAmount)
+        {
+            _errors.Add($"Jumlah pembayaran tidak boleh melebihi sisa tagihan ({Display.Rupiah(MaxAmount)}).");
+            return;
+        }
+
+        _saving = true;
+        _model.PaymentDate = _paymentDate ?? DateTime.Today;
+
+        var result = await PaymentService.CreateAsync(_model);
+        _saving = false;
+
+        if (result.IsSuccess)
+        {
+            MudDialog.Close(DialogResult.Ok(result.Value));
+        }
+        else
+        {
+            _errors = result.Errors.ToList();
+        }
+    }
+
+    private void Cancel() => MudDialog.Cancel();
+}

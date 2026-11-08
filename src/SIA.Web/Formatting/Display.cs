@@ -74,4 +74,12 @@ public static class Display
         PaymentMethod.Transfer => "Transfer",
         _ => method.ToString(),
     };
+
+    public static string Label(ReferenceType referenceType) => referenceType switch
+    {
+        ReferenceType.Sale => "Penjualan (Piutang)",
+        ReferenceType.PurchaseOrder => "Purchase Order (Utang)",
+        _ => referenceType.ToString(),
+    };
 }
+

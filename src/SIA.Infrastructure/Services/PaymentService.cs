@@ -13,7 +13,10 @@ using SIA.Infrastructure.Data;
 namespace SIA.Infrastructure.Services;
 
 /// <summary>
-/// Pembayaran piutang (Sale) dan utang (PurchaseOrder). Baca: semua role. Tulis: Admin, Staff.
+/// Pembayaran piutang (Sale) dan utang (PurchaseOrder).
+/// Baca: semua role (Policies.ViewAllData).
+/// Tulis: Admin, Staff (Policies.ManageTransactions).
+/// Hapus: Admin (Policies.RequireAdmin).
 /// Referensi polimorfik (ReferenceType + ReferenceId, tanpa FK) divalidasi di sini; setelah pembayaran,
 /// PaidAmount, RemainingAmount, dan PaymentStatus pada dokumen sumber diperbarui.
 /// Jurnal TIDAK diposting otomatis.
@@ -31,26 +34,70 @@ public class PaymentService : IPaymentService
         _transactionNumbers = transactionNumbers;
     }
 
-    public async Task<Result<IReadOnlyList<PaymentDto>>> GetAllAsync(DateTime? dateFrom = null, DateTime? dateTo = null, CancellationToken cancellationToken = default)
+    /// <summary>
+    /// Backward-compatibility overload untuk query berbasis rentang tanggal.
+    /// </summary>
+    public async Task<Result<IReadOnlyList<PaymentDto>>> GetAllAsync(
+        DateTime? dateFrom = null,
+        DateTime? dateTo = null,
+        CancellationToken cancellationToken = default)
+    {
+        return await GetAllAsync(new PaymentFilterDto
+        {
+            DateFrom = dateFrom,
+            DateTo = dateTo
+        }, cancellationToken);
+    }
+
+    /// <summary>
+    /// Mengambil riwayat pembayaran dengan filter DB (tanggal, jenis referensi, metode)
+    /// dan pencarian in-memory multi-kolom (PaymentNumber, ReferenceNumber, PartyName, Notes).
+    /// </summary>
+    public async Task<Result<IReadOnlyList<PaymentDto>>> GetAllAsync(
+        PaymentFilterDto filter,
+        CancellationToken cancellationToken = default)
     {
         if (!ServiceGuard.Has(_currentUser, Policies.ViewAllData))
             return Result<IReadOnlyList<PaymentDto>>.Failure(ServiceGuard.ReadDenied);
 
+        filter ??= new PaymentFilterDto();
+
         var query = _context.Payments.AsNoTracking();
-        if (dateFrom is not null)
-            query = query.Where(p => p.PaymentDate >= dateFrom.Value.Date);
-        if (dateTo is not null)
+
+        if (filter.DateFrom is not null)
+            query = query.Where(p => p.PaymentDate >= filter.DateFrom.Value.Date);
+
+        if (filter.DateTo is not null)
         {
-            var end = dateTo.Value.Date.AddDays(1);
+            var end = filter.DateTo.Value.Date.AddDays(1);
             query = query.Where(p => p.PaymentDate < end);
         }
+
+        if (filter.ReferenceType is not null)
+            query = query.Where(p => p.ReferenceType == filter.ReferenceType.Value);
+
+        if (filter.PaymentMethod is not null)
+            query = query.Where(p => p.PaymentMethod == filter.PaymentMethod.Value);
 
         var payments = await query
             .OrderByDescending(p => p.PaymentDate)
             .ThenByDescending(p => p.Id)
             .ToListAsync(cancellationToken);
 
-        return Result<IReadOnlyList<PaymentDto>>.Success(await ToDtosAsync(payments, cancellationToken));
+        var dtos = await ToDtosAsync(payments, cancellationToken);
+
+        var term = ServiceGuard.Clean(filter.Search);
+        if (term is not null)
+        {
+            dtos = dtos.Where(p =>
+                p.PaymentNumber.Contains(term, StringComparison.OrdinalIgnoreCase) ||
+                (p.ReferenceNumber?.Contains(term, StringComparison.OrdinalIgnoreCase) ?? false) ||
+                (p.PartyName?.Contains(term, StringComparison.OrdinalIgnoreCase) ?? false) ||
+                (p.Notes?.Contains(term, StringComparison.OrdinalIgnoreCase) ?? false)
+            ).ToList();
+        }
+
+        return Result<IReadOnlyList<PaymentDto>>.Success(dtos);
     }
 
     public async Task<Result<PaymentDto>> GetByIdAsync(int id, CancellationToken cancellationToken = default)
@@ -93,23 +140,31 @@ public class PaymentService : IPaymentService
             return Result<PaymentDto>.Failure(errors);
 
         // Validasi referensi polimorfik (tanpa FK) dan ambil dokumen sumber yang akan diperbarui
-        IPayable? target;
+        IPayable target;
         switch (dto.ReferenceType)
         {
             case ReferenceType.Sale:
-                var sale = await _context.Sales.SingleOrDefaultAsync(s => s.Id == dto.ReferenceId, cancellationToken);
+                var sale = await _context.Sales
+                    .Include(s => s.Customer)
+                    .SingleOrDefaultAsync(s => s.Id == dto.ReferenceId, cancellationToken);
                 if (sale is null)
                     return Result<PaymentDto>.Failure("Penjualan yang dirujuk tidak ditemukan.");
                 // Context Blazor Server berumur panjang: pastikan sisa tagihan diambil dari nilai terbaru di database
                 await _context.Entry(sale).ReloadAsync(cancellationToken);
+                if (sale.Customer is null && sale.CustomerId > 0)
+                    await _context.Entry(sale).Reference(s => s.Customer).LoadAsync(cancellationToken);
                 target = new SalePayable(sale);
                 break;
 
             case ReferenceType.PurchaseOrder:
-                var po = await _context.PurchaseOrders.SingleOrDefaultAsync(p => p.Id == dto.ReferenceId, cancellationToken);
+                var po = await _context.PurchaseOrders
+                    .Include(p => p.Supplier)
+                    .SingleOrDefaultAsync(p => p.Id == dto.ReferenceId, cancellationToken);
                 if (po is null)
                     return Result<PaymentDto>.Failure("Purchase Order yang dirujuk tidak ditemukan.");
                 await _context.Entry(po).ReloadAsync(cancellationToken);
+                if (po.Supplier is null && po.SupplierId > 0)
+                    await _context.Entry(po).Reference(p => p.Supplier).LoadAsync(cancellationToken);
                 if (po.Status is PurchaseOrderStatus.Draft or PurchaseOrderStatus.Cancelled)
                     return Result<PaymentDto>.Failure("Pembayaran hanya dapat dicatat untuk Purchase Order yang sudah disetujui atau diterima.");
                 target = new PurchaseOrderPayable(po);
@@ -153,12 +208,163 @@ public class PaymentService : IPaymentService
             if (ownsTransaction)
                 await _context.Database.CommitTransactionAsync(cancellationToken);
 
-            return Result<PaymentDto>.Success(ToDto(payment, target.Number));
+            return Result<PaymentDto>.Success(ToDto(payment, target.Number, target.PartyName));
         }
         catch (InvalidOperationException ex)
         {
             await RollbackAsync(ownsTransaction, cancellationToken);
             return Result<PaymentDto>.Failure(ex.Message);
+        }
+        catch
+        {
+            await RollbackAsync(ownsTransaction, cancellationToken);
+            throw;
+        }
+    }
+
+    /// <summary>
+    /// Mengambil daftar piutang penjualan dan utang PO yang belum lunas (RemainingAmount > 0).
+    /// Untuk PO, hanya menyertakan status Approved atau Received (Draft dan Cancelled diabaikan).
+    /// Mendukung filter ReferenceType, OnlyOverdue, Search, serta pengurutan jatuh tempo teratas.
+    /// </summary>
+    public async Task<Result<IReadOnlyList<OutstandingDto>>> GetOutstandingAsync(
+        OutstandingFilterDto? filter = null,
+        CancellationToken cancellationToken = default)
+    {
+        if (!ServiceGuard.Has(_currentUser, Policies.ViewAllData))
+            return Result<IReadOnlyList<OutstandingDto>>.Failure(ServiceGuard.ReadDenied);
+
+        filter ??= new OutstandingFilterDto();
+
+        var salesList = new List<OutstandingDto>();
+        var poList = new List<OutstandingDto>();
+
+        if (filter.ReferenceType is null or ReferenceType.Sale)
+        {
+            salesList = await _context.Sales.AsNoTracking()
+                .Include(s => s.Customer)
+                .Where(s => s.RemainingAmount > 0)
+                .Select(s => new OutstandingDto
+                {
+                    ReferenceType = ReferenceType.Sale,
+                    ReferenceId = s.Id,
+                    ReferenceNumber = s.InvoiceNumber,
+                    PartyName = s.Customer != null ? s.Customer.Name : string.Empty,
+                    TransactionDate = s.SaleDate,
+                    DueDate = s.DueDate,
+                    TotalAmount = s.TotalAmount,
+                    PaidAmount = s.PaidAmount,
+                    RemainingAmount = s.RemainingAmount,
+                    PaymentStatus = s.PaymentStatus,
+                    PurchaseOrderStatus = null,
+                })
+                .ToListAsync(cancellationToken);
+        }
+
+        if (filter.ReferenceType is null or ReferenceType.PurchaseOrder)
+        {
+            poList = await _context.PurchaseOrders.AsNoTracking()
+                .Include(p => p.Supplier)
+                .Where(p => (p.Status == PurchaseOrderStatus.Approved || p.Status == PurchaseOrderStatus.Received)
+                            && p.RemainingAmount > 0)
+                .Select(p => new OutstandingDto
+                {
+                    ReferenceType = ReferenceType.PurchaseOrder,
+                    ReferenceId = p.Id,
+                    ReferenceNumber = p.PONumber,
+                    PartyName = p.Supplier != null ? p.Supplier.Name : string.Empty,
+                    TransactionDate = p.OrderDate,
+                    DueDate = p.DueDate,
+                    TotalAmount = p.TotalAmount,
+                    PaidAmount = p.PaidAmount,
+                    RemainingAmount = p.RemainingAmount,
+                    PaymentStatus = p.PaymentStatus,
+                    PurchaseOrderStatus = p.Status,
+                })
+                .ToListAsync(cancellationToken);
+        }
+
+        IEnumerable<OutstandingDto> items = salesList.Concat(poList);
+
+        var today = DateTime.Today;
+        if (filter.OnlyOverdue)
+        {
+            items = items.Where(x => x.DueDate.HasValue && x.DueDate.Value.Date < today);
+        }
+
+        var term = ServiceGuard.Clean(filter.Search);
+        if (term is not null)
+        {
+            items = items.Where(x =>
+                x.ReferenceNumber.Contains(term, StringComparison.OrdinalIgnoreCase) ||
+                x.PartyName.Contains(term, StringComparison.OrdinalIgnoreCase));
+        }
+
+        var sorted = items
+            .OrderBy(x => x.DueDate.HasValue && x.DueDate.Value.Date < today ? 0 : 1)
+            .ThenBy(x => x.DueDate ?? DateTime.MaxValue)
+            .ThenBy(x => x.TransactionDate)
+            .ToList();
+
+        return Result<IReadOnlyList<OutstandingDto>>.Success(sorted);
+    }
+
+    /// <summary>
+    /// Menghapus pembayaran (soft delete) dan memulihkan PaidAmount, RemainingAmount, serta PaymentStatus
+    /// pada dokumen sumber (Sale atau PurchaseOrder) dalam transaksi atomik.
+    /// Khusus Admin (Policies.RequireAdmin). Tidak membuat jurnal otomatis.
+    /// </summary>
+    public async Task<Result> DeleteAsync(int id, CancellationToken cancellationToken = default)
+    {
+        if (!ServiceGuard.Has(_currentUser, Policies.RequireAdmin))
+            return Result.Failure(ServiceGuard.WriteDenied);
+
+        var payment = await _context.Payments.SingleOrDefaultAsync(p => p.Id == id, cancellationToken);
+        if (payment is null)
+            return Result.Failure("Pembayaran tidak ditemukan.");
+
+        IPayable target;
+        switch (payment.ReferenceType)
+        {
+            case ReferenceType.Sale:
+                var sale = await _context.Sales.SingleOrDefaultAsync(s => s.Id == payment.ReferenceId, cancellationToken);
+                if (sale is null)
+                    return Result.Failure("Penjualan yang dirujuk tidak ditemukan.");
+                await _context.Entry(sale).ReloadAsync(cancellationToken);
+                target = new SalePayable(sale);
+                break;
+
+            case ReferenceType.PurchaseOrder:
+                var po = await _context.PurchaseOrders.SingleOrDefaultAsync(p => p.Id == payment.ReferenceId, cancellationToken);
+                if (po is null)
+                    return Result.Failure("Purchase Order yang dirujuk tidak ditemukan.");
+                await _context.Entry(po).ReloadAsync(cancellationToken);
+                target = new PurchaseOrderPayable(po);
+                break;
+
+            default:
+                return Result.Failure("Jenis referensi pembayaran tidak dikenal.");
+        }
+
+        var ownsTransaction = _context.Database.CurrentTransaction is null;
+        if (ownsTransaction)
+            await _context.Database.BeginTransactionAsync(cancellationToken);
+
+        try
+        {
+            _context.Payments.Remove(payment); // Dikonversi menjadi soft delete oleh AppDbContext
+            target.ReversePayment(payment.Amount);
+
+            await _context.SaveChangesAsync(cancellationToken);
+            if (ownsTransaction)
+                await _context.Database.CommitTransactionAsync(cancellationToken);
+
+            return Result.Success();
+        }
+        catch (InvalidOperationException ex)
+        {
+            await RollbackAsync(ownsTransaction, cancellationToken);
+            return Result.Failure(ex.Message);
         }
         catch
         {
@@ -180,27 +386,40 @@ public class PaymentService : IPaymentService
         var saleIds = payments.Where(p => p.ReferenceType == ReferenceType.Sale).Select(p => p.ReferenceId).Distinct().ToList();
         var poIds = payments.Where(p => p.ReferenceType == ReferenceType.PurchaseOrder).Select(p => p.ReferenceId).Distinct().ToList();
 
-        // IgnoreQueryFilters: nomor dokumen tetap tampil walau dokumen sumber di-soft-delete
-        var saleNumbers = saleIds.Count == 0
-            ? new Dictionary<int, string>()
+        // IgnoreQueryFilters: nomor dokumen dan nama pihak tetap tampil walau dokumen/pihak sumber di-soft-delete
+        var saleInfo = saleIds.Count == 0
+            ? new Dictionary<int, (string Number, string? PartyName)>()
             : await _context.Sales.IgnoreQueryFilters().AsNoTracking()
                 .Where(s => saleIds.Contains(s.Id))
-                .ToDictionaryAsync(s => s.Id, s => s.InvoiceNumber, cancellationToken);
+                .Select(s => new
+                {
+                    s.Id,
+                    Number = s.InvoiceNumber,
+                    PartyName = s.Customer != null ? s.Customer.Name : null
+                })
+                .ToDictionaryAsync(s => s.Id, s => (s.Number, s.PartyName), cancellationToken);
 
-        var poNumbers = poIds.Count == 0
-            ? new Dictionary<int, string>()
+        var poInfo = poIds.Count == 0
+            ? new Dictionary<int, (string Number, string? PartyName)>()
             : await _context.PurchaseOrders.IgnoreQueryFilters().AsNoTracking()
                 .Where(p => poIds.Contains(p.Id))
-                .ToDictionaryAsync(p => p.Id, p => p.PONumber, cancellationToken);
+                .Select(p => new
+                {
+                    p.Id,
+                    Number = p.PONumber,
+                    PartyName = p.Supplier != null ? p.Supplier.Name : null
+                })
+                .ToDictionaryAsync(p => p.Id, p => (p.Number, p.PartyName), cancellationToken);
 
         return payments.Select(p =>
         {
-            var numbers = p.ReferenceType == ReferenceType.Sale ? saleNumbers : poNumbers;
-            return ToDto(p, numbers.TryGetValue(p.ReferenceId, out var n) ? n : null);
+            var info = p.ReferenceType == ReferenceType.Sale ? saleInfo : poInfo;
+            var found = info.TryGetValue(p.ReferenceId, out var item);
+            return ToDto(p, found ? item.Number : null, found ? item.PartyName : null);
         }).ToList();
     }
 
-    private static PaymentDto ToDto(Payment p, string? referenceNumber) => new()
+    private static PaymentDto ToDto(Payment p, string? referenceNumber, string? partyName = null) => new()
     {
         Id = p.Id,
         PaymentNumber = p.PaymentNumber,
@@ -209,6 +428,7 @@ public class PaymentService : IPaymentService
         ReferenceType = p.ReferenceType,
         ReferenceId = p.ReferenceId,
         ReferenceNumber = referenceNumber,
+        PartyName = partyName,
         Amount = p.Amount,
         Notes = p.Notes,
     };
@@ -220,9 +440,11 @@ public class PaymentService : IPaymentService
     private interface IPayable
     {
         string Number { get; }
+        string PartyName { get; }
         DateTime TransactionDate { get; }
         decimal RemainingAmount { get; }
         void ApplyPayment(decimal amount);
+        void ReversePayment(decimal amount);
     }
 
     private sealed class SalePayable : IPayable
@@ -231,12 +453,20 @@ public class PaymentService : IPaymentService
         public SalePayable(Domain.Entities.Sales.Sale sale) => _sale = sale;
 
         public string Number => _sale.InvoiceNumber;
+        public string PartyName => _sale.Customer?.Name ?? string.Empty;
         public DateTime TransactionDate => _sale.SaleDate;
         public decimal RemainingAmount => _sale.RemainingAmount;
 
         public void ApplyPayment(decimal amount)
         {
             _sale.PaidAmount += amount;
+            _sale.RemainingAmount = _sale.TotalAmount - _sale.PaidAmount;
+            _sale.PaymentStatus = PaymentStatusCalculator.Calculate(_sale.TotalAmount, _sale.PaidAmount);
+        }
+
+        public void ReversePayment(decimal amount)
+        {
+            _sale.PaidAmount = Math.Max(0m, _sale.PaidAmount - amount);
             _sale.RemainingAmount = _sale.TotalAmount - _sale.PaidAmount;
             _sale.PaymentStatus = PaymentStatusCalculator.Calculate(_sale.TotalAmount, _sale.PaidAmount);
         }
@@ -248,12 +478,20 @@ public class PaymentService : IPaymentService
         public PurchaseOrderPayable(Domain.Entities.Purchasing.PurchaseOrder po) => _po = po;
 
         public string Number => _po.PONumber;
+        public string PartyName => _po.Supplier?.Name ?? string.Empty;
         public DateTime TransactionDate => _po.OrderDate;
         public decimal RemainingAmount => _po.RemainingAmount;
 
         public void ApplyPayment(decimal amount)
         {
             _po.PaidAmount += amount;
+            _po.RemainingAmount = _po.TotalAmount - _po.PaidAmount;
+            _po.PaymentStatus = PaymentStatusCalculator.Calculate(_po.TotalAmount, _po.PaidAmount);
+        }
+
+        public void ReversePayment(decimal amount)
+        {
+            _po.PaidAmount = Math.Max(0m, _po.PaidAmount - amount);
             _po.RemainingAmount = _po.TotalAmount - _po.PaidAmount;
             _po.PaymentStatus = PaymentStatusCalculator.Calculate(_po.TotalAmount, _po.PaidAmount);
         }

@@ -1,0 +1,167 @@
+@using SIA.Application.DTOs.Payments
+@using SIA.Application.Services.Payments
+@using SIA.Domain.Enums
+@using SIA.Web.Formatting
+@inject IPaymentService PaymentService
+
+<MudDialog>
+    <TitleContent>
+        <div class="d-flex align-center gap-2">
+            <MudIcon Icon="@Icons.Material.Outlined.History" Color="Color.Primary" />
+            <MudText Typo="Typo.h6">Riwayat Pembayaran — @ReferenceNumber</MudText>
+        </div>
+    </TitleContent>
+    <DialogContent>
+        @* Ringkasan Informasi Dokumen Referensi *@
+        <MudPaper Outlined="true" Class="pa-3 mb-4">
+            <MudGrid Spacing="2">
+                <MudItem xs="12" sm="6">
+                    <div class="d-flex justify-space-between align-center mb-1">
+                        <MudText Typo="Typo.body2" Class="mud-text-secondary">No. Dokumen</MudText>
+                        <MudText Typo="Typo.body2"><strong>@ReferenceNumber</strong></MudText>
+                    </div>
+                    <div class="d-flex justify-space-between align-center mb-1">
+                        <MudText Typo="Typo.body2" Class="mud-text-secondary">Jenis Transaksi</MudText>
+                        <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined"
+                                 Color="@(ReferenceType == ReferenceType.Sale ? Color.Secondary : Color.Primary)">
+                            @Display.Label(ReferenceType)
+                        </MudChip>
+                    </div>
+                    <div class="d-flex justify-space-between align-center">
+                        <MudText Typo="Typo.body2" Class="mud-text-secondary">
+                            @(ReferenceType == ReferenceType.Sale ? "Pelanggan" : "Pemasok")
+                        </MudText>
+                        <MudText Typo="Typo.body2">@(string.IsNullOrWhiteSpace(PartyName) ? "-" : PartyName)</MudText>
+                    </div>
+                </MudItem>
+                <MudItem xs="12" sm="6">
+                    @if (TotalAmount > 0)
+                    {
+                        <div class="d-flex justify-space-between align-center mb-1">
+                            <MudText Typo="Typo.body2" Class="mud-text-secondary">Total Tagihan</MudText>
+                            <MudText Typo="Typo.body2">@Display.Rupiah(TotalAmount)</MudText>
+                        </div>
+                    }
+                    <div class="d-flex justify-space-between align-center mb-1">
+                        <MudText Typo="Typo.body2" Class="mud-text-secondary">Total Terbayar</MudText>
+                        <MudText Typo="Typo.body2" Color="Color.Success"><strong>@Display.Rupiah(TotalPaid)</strong></MudText>
+                    </div>
+                    @if (TotalAmount > 0 || RemainingAmount > 0)
+                    {
+                        <div class="d-flex justify-space-between align-center">
+                            <MudText Typo="Typo.body2" Class="mud-text-secondary">Sisa Tagihan</MudText>
+                            <MudText Typo="Typo.body2" Color="@(RemainingAmount > 0 ? Color.Error : Color.Success)">
+                                <strong>@Display.Rupiah(RemainingAmount)</strong>
+                            </MudText>
+                        </div>
+                    }
+                </MudItem>
+            </MudGrid>
+        </MudPaper>
+
+        @if (!string.IsNullOrEmpty(_errorMessage))
+        {
+            <MudAlert Severity="Severity.Error" Variant="Variant.Outlined" Dense="true" Class="mb-4">
+                @_errorMessage
+            </MudAlert>
+        }
+
+        @if (_loading)
+        {
+            <div class="d-flex justify-center align-center pa-6">
+                <MudProgressCircular Color="Color.Primary" Indeterminate="true" Size="Size.Medium" />
+                <MudText Typo="Typo.body2" Class="ms-2">Memuat riwayat pembayaran...</MudText>
+            </div>
+        }
+        else if (_payments.Count == 0)
+        {
+            <MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Dense="true" Class="my-2">
+                Belum ada riwayat pembayaran untuk dokumen ini.
+            </MudAlert>
+        }
+        else
+        {
+            <MudTable Items="_payments" Hover="true" Dense="true" Elevation="0" Class="sia-table">
+                <HeaderContent>
+                    <MudTh>No. Pembayaran</MudTh>
+                    <MudTh>Tanggal</MudTh>
+                    <MudTh>Metode</MudTh>
+                    <MudTh Style="text-align: right;">Jumlah</MudTh>
+                    <MudTh>Catatan</MudTh>
+                </HeaderContent>
+                <RowTemplate>
+                    <MudTd DataLabel="No. Pembayaran">
+                        <strong>@context.PaymentNumber</strong>
+                    </MudTd>
+                    <MudTd DataLabel="Tanggal">@Display.Date(context.PaymentDate)</MudTd>
+                    <MudTd DataLabel="Metode">
+                        <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined"
+                                 Color="@(context.PaymentMethod == PaymentMethod.Cash ? Color.Success : Color.Info)">
+                            @Display.Label(context.PaymentMethod)
+                        </MudChip>
+                    </MudTd>
+                    <MudTd DataLabel="Jumlah" Style="text-align: right;">
+                        <strong>@Display.Rupiah(context.Amount)</strong>
+                    </MudTd>
+                    <MudTd DataLabel="Catatan">
+                        @(string.IsNullOrWhiteSpace(context.Notes) ? "-" : context.Notes)
+                    </MudTd>
+                </RowTemplate>
+                <FooterContent>
+                    <MudTd colspan="3"><strong>Total Dibayar</strong></MudTd>
+                    <MudTd Style="text-align: right;">
+                        <MudText Typo="Typo.subtitle2" Color="Color.Success">
+                            <strong>@Display.Rupiah(TotalPaid)</strong>
+                        </MudText>
+                    </MudTd>
+                    <MudTd></MudTd>
+                </FooterContent>
+            </MudTable>
+        }
+    </DialogContent>
+    <DialogActions>
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="Close">Tutup</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] private IMudDialogInstance MudDialog { get; set; } = default!;
+
+    [Parameter] public ReferenceType ReferenceType { get; set; }
+    [Parameter] public int ReferenceId { get; set; }
+    [Parameter] public string ReferenceNumber { get; set; } = string.Empty;
+    [Parameter] public string? PartyName { get; set; }
+    [Parameter] public decimal TotalAmount { get; set; }
+    [Parameter] public decimal RemainingAmount { get; set; }
+
+    private List<PaymentDto> _payments = new();
+    private bool _loading = true;
+    private string? _errorMessage;
+
+    private decimal TotalPaid => _payments.Sum(p => p.Amount);
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadPaymentsAsync();
+    }
+
+    private async Task LoadPaymentsAsync()
+    {
+        _loading = true;
+        _errorMessage = null;
+
+        var result = await PaymentService.GetByReferenceAsync(ReferenceType, ReferenceId);
+        if (result.IsSuccess && result.Value != null)
+        {
+            _payments = result.Value.OrderByDescending(p => p.PaymentDate).ThenByDescending(p => p.Id).ToList();
+        }
+        else
+        {
+            _errorMessage = result.Error ?? (result.Errors.Count > 0 ? string.Join("; ", result.Errors) : "Gagal memuat riwayat pembayaran.");
+        }
+
+        _loading = false;
+    }
+
+    private void Close() => MudDialog.Close();
+}

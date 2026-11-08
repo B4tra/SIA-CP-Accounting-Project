@@ -15,6 +15,9 @@ public class PaymentDto
     /// <summary>Nomor invoice/PO yang dibayar.</summary>
     public string? ReferenceNumber { get; set; }
 
+    /// <summary>Nama pelanggan (Sale) atau pemasok (PurchaseOrder).</summary>
+    public string? PartyName { get; set; }
+
     public decimal Amount { get; set; }
     public string? Notes { get; set; }
 }
@@ -60,4 +63,25 @@ public class OutstandingDto
     public decimal PaidAmount { get; set; }
     public decimal RemainingAmount { get; set; }
     public PaymentStatus PaymentStatus { get; set; }
+
+    /// <summary>Status Purchase Order; bernilai null untuk piutang penjualan (Sale).</summary>
+    public PurchaseOrderStatus? PurchaseOrderStatus { get; set; }
+}
+
+/// <summary>Filter pencarian riwayat pembayaran.</summary>
+public class PaymentFilterDto
+{
+    public string? Search { get; set; }
+    public DateTime? DateFrom { get; set; }
+    public DateTime? DateTo { get; set; }
+    public ReferenceType? ReferenceType { get; set; }
+    public PaymentMethod? PaymentMethod { get; set; }
+}
+
+/// <summary>Filter tagihan belum lunas (piutang penjualan atau utang purchase order).</summary>
+public class OutstandingFilterDto
+{
+    public string? Search { get; set; }
+    public ReferenceType? ReferenceType { get; set; }
+    public bool OnlyOverdue { get; set; }
 }

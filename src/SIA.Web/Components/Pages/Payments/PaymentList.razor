@@ -1,0 +1,630 @@
+@page "/payments"
+@attribute [Authorize(Policy = Policies.ViewAllData)]
+@using SIA.Application.DTOs.Payments
+@using SIA.Application.Services.Payments
+@using SIA.Domain.Enums
+@inject IPaymentService PaymentService
+@inject IDialogService DialogService
+@inject ISnackbar Snackbar
+@inject IAuthorizationService AuthorizationService
+@inject AuthenticationStateProvider AuthStateProvider
+
+<PageTitle>Pusat Pembayaran - SIA</PageTitle>
+
+<!-- Header & Quick Actions Bar -->
+<div class="d-flex flex-wrap align-center justify-space-between gap-4 mb-6">
+    <div>
+        <h1 class="sia-page-title">Pusat Pembayaran</h1>
+        <MudText Typo="Typo.body2" Class="mud-text-secondary">
+            Kelola transaksi pembayaran piutang penjualan dan utang pembelian, serta pantau tagihan aktif.
+        </MudText>
+    </div>
+    <div class="d-flex flex-wrap align-center gap-2">
+        @if (_canManage)
+        {
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Add"
+                       OnClick="() => OpenCreatePaymentDialogAsync()">
+                + Catat Pembayaran Baru
+            </MudButton>
+        }
+        <MudButton Variant="Variant.Outlined" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Refresh"
+                   OnClick="() => LoadDataAsync()" Disabled="_loading">
+            Muat Ulang
+        </MudButton>
+    </div>
+</div>
+
+<!-- 4 Kartu KPI Ringkasan Finansial -->
+<MudGrid Spacing="3" Class="mb-6">
+    <!-- 1. Total Penerimaan Piutang -->
+    <MudItem xs="12" sm="6" md="3">
+        <MudPaper Outlined="true" Class="sia-card pa-4 h-100 d-flex flex-column justify-space-between">
+            <div>
+                <div class="d-flex align-center justify-space-between mb-2">
+                    <MudText Typo="Typo.caption" Class="mud-text-secondary text-uppercase font-weight-bold">Total Penerimaan Piutang</MudText>
+                    <MudIcon Icon="@Icons.Material.Outlined.TrendingUp" Color="Color.Secondary" Size="Size.Small" />
+                </div>
+                <MudText Typo="Typo.h5" Class="font-weight-bold">@Display.Rupiah(_kpiTotalSalePaid)</MudText>
+            </div>
+            <div class="d-flex align-center justify-space-between mt-3 pt-2 border-t">
+                <MudText Typo="Typo.caption" Class="mud-text-secondary">@_kpiSalePaymentCount transaksi masuk</MudText>
+            </div>
+        </MudPaper>
+    </MudItem>
+
+    <!-- 2. Total Pembayaran Utang -->
+    <MudItem xs="12" sm="6" md="3">
+        <MudPaper Outlined="true" Class="sia-card pa-4 h-100 d-flex flex-column justify-space-between">
+            <div>
+                <div class="d-flex align-center justify-space-between mb-2">
+                    <MudText Typo="Typo.caption" Class="mud-text-secondary text-uppercase font-weight-bold">Total Pembayaran Utang</MudText>
+                    <MudIcon Icon="@Icons.Material.Outlined.ShoppingCartCheckout" Color="Color.Primary" Size="Size.Small" />
+                </div>
+                <MudText Typo="Typo.h5" Class="font-weight-bold">@Display.Rupiah(_kpiTotalPoPaid)</MudText>
+            </div>
+            <div class="d-flex align-center justify-space-between mt-3 pt-2 border-t">
+                <MudText Typo="Typo.caption" Class="mud-text-secondary">@_kpiPoPaymentCount transaksi keluar</MudText>
+            </div>
+        </MudPaper>
+    </MudItem>
+
+    <!-- 3. Sisa Piutang Pelanggan -->
+    <MudItem xs="12" sm="6" md="3">
+        <MudPaper Outlined="true" Class="sia-card pa-4 h-100 d-flex flex-column justify-space-between">
+            <div>
+                <div class="d-flex align-center justify-space-between mb-2">
+                    <MudText Typo="Typo.caption" Class="mud-text-secondary text-uppercase font-weight-bold">Sisa Piutang Pelanggan</MudText>
+                    <MudIcon Icon="@Icons.Material.Outlined.ReceiptLong" Color="Color.Primary" Size="Size.Small" />
+                </div>
+                <MudText Typo="Typo.h5" Class="font-weight-bold">@Display.Rupiah(_kpiTotalReceivables)</MudText>
+            </div>
+            <div class="d-flex align-center justify-space-between mt-3 pt-2 border-t">
+                <MudText Typo="Typo.caption" Class="mud-text-secondary">@_kpiUnpaidSaleCount invoice belum lunas</MudText>
+                @if (_kpiOverdueSaleCount > 0)
+                {
+                    <MudChip T="string" Size="Size.Small" Color="Color.Error" Variant="Variant.Filled" Class="ma-0 px-2 font-weight-bold">
+                        @_kpiOverdueSaleCount Lewat JT
+                    </MudChip>
+                }
+                else
+                {
+                    <MudChip T="string" Size="Size.Small" Color="Color.Success" Variant="Variant.Outlined" Class="ma-0 px-2">Aman</MudChip>
+                }
+            </div>
+        </MudPaper>
+    </MudItem>
+
+    <!-- 4. Sisa Utang Pemasok -->
+    <MudItem xs="12" sm="6" md="3">
+        <MudPaper Outlined="true" Class="sia-card pa-4 h-100 d-flex flex-column justify-space-between">
+            <div>
+                <div class="d-flex align-center justify-space-between mb-2">
+                    <MudText Typo="Typo.caption" Class="mud-text-secondary text-uppercase font-weight-bold">Sisa Utang Pemasok</MudText>
+                    <MudIcon Icon="@Icons.Material.Outlined.AccountBalanceWallet" Color="Color.Primary" Size="Size.Small" />
+                </div>
+                <MudText Typo="Typo.h5" Class="font-weight-bold">@Display.Rupiah(_kpiTotalPayables)</MudText>
+            </div>
+            <div class="d-flex align-center justify-space-between mt-3 pt-2 border-t">
+                <MudText Typo="Typo.caption" Class="mud-text-secondary">@_kpiUnpaidPoCount PO belum lunas</MudText>
+                @if (_kpiOverduePoCount > 0)
+                {
+                    <MudChip T="string" Size="Size.Small" Color="Color.Error" Variant="Variant.Filled" Class="ma-0 px-2 font-weight-bold">
+                        @_kpiOverduePoCount Lewat JT
+                    </MudChip>
+                }
+                else
+                {
+                    <MudChip T="string" Size="Size.Small" Color="Color.Success" Variant="Variant.Outlined" Class="ma-0 px-2">Aman</MudChip>
+                }
+            </div>
+        </MudPaper>
+    </MudItem>
+</MudGrid>
+
+<!-- Wadah MudTabs Pembayaran -->
+<MudPaper Outlined="true" Class="sia-card pa-4">
+    <MudTabs Elevation="0" Rounded="true" ApplyEffectsToContainer="true" PanelClass="pt-4">
+
+        <!-- Tab 1: Riwayat Pembayaran -->
+        <MudTabPanel Text="Riwayat Pembayaran" Icon="@Icons.Material.Outlined.ReceiptLong">
+            <!-- Filter Bar Tab 1 -->
+            <div class="d-flex flex-wrap align-center gap-4 mb-4">
+                <MudTextField T="string" @bind-Value="_paymentFilter.Search"
+                              Placeholder="Cari no. bayar, referensi, pihak, catatan..."
+                              Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Search"
+                              Immediate="true" DebounceInterval="300" OnDebounceIntervalElapsed="SearchPaymentsAsync"
+                              Variant="Variant.Outlined" Margin="Margin.Dense" Clearable="true" Class="flex-grow-1" />
+
+                <MudDatePicker Label="Dari tanggal" Date="_paymentFilter.DateFrom" DateChanged="PaymentDateFromChangedAsync"
+                               DateFormat="dd/MM/yyyy" Variant="Variant.Outlined" Margin="Margin.Dense" Clearable="true" Style="max-width:170px" />
+
+                <MudDatePicker Label="Sampai tanggal" Date="_paymentFilter.DateTo" DateChanged="PaymentDateToChangedAsync"
+                               DateFormat="dd/MM/yyyy" Variant="Variant.Outlined" Margin="Margin.Dense" Clearable="true" Style="max-width:170px" />
+
+                <MudSelect T="ReferenceType?" Label="Jenis Referensi" Value="_paymentFilter.ReferenceType" ValueChanged="PaymentReferenceTypeChangedAsync"
+                           Variant="Variant.Outlined" Margin="Margin.Dense" Clearable="true" Style="max-width:210px">
+                    <MudSelectItem T="ReferenceType?" Value="@((ReferenceType?)null)">Semua Jenis</MudSelectItem>
+                    <MudSelectItem T="ReferenceType?" Value="@((ReferenceType?)ReferenceType.Sale)">Penjualan (Piutang)</MudSelectItem>
+                    <MudSelectItem T="ReferenceType?" Value="@((ReferenceType?)ReferenceType.PurchaseOrder)">Purchase Order (Utang)</MudSelectItem>
+                </MudSelect>
+
+                <MudSelect T="PaymentMethod?" Label="Metode Pembayaran" Value="_paymentFilter.PaymentMethod" ValueChanged="PaymentMethodChangedAsync"
+                           Variant="Variant.Outlined" Margin="Margin.Dense" Clearable="true" Style="max-width:180px">
+                    <MudSelectItem T="PaymentMethod?" Value="@((PaymentMethod?)null)">Semua Metode</MudSelectItem>
+                    @foreach (var method in Enum.GetValues<PaymentMethod>())
+                    {
+                        <MudSelectItem T="PaymentMethod?" Value="@((PaymentMethod?)method)">@Display.Label(method)</MudSelectItem>
+                    }
+                </MudSelect>
+            </div>
+
+            <!-- Tabel Riwayat Pembayaran -->
+            <MudTable Items="_payments" Loading="_loadingPayments" Hover="true" Dense="true" Breakpoint="Breakpoint.Sm"
+                      Class="sia-table" Elevation="0">
+                <HeaderContent>
+                    <MudTh>No. Pembayaran</MudTh>
+                    <MudTh>Tanggal</MudTh>
+                    <MudTh>Jenis</MudTh>
+                    <MudTh>No. Referensi</MudTh>
+                    <MudTh>Pelanggan / Pemasok</MudTh>
+                    <MudTh>Metode</MudTh>
+                    <MudTh Style="text-align:right">Jumlah</MudTh>
+                    <MudTh>Catatan</MudTh>
+                    <MudTh Style="text-align:right">Aksi</MudTh>
+                </HeaderContent>
+                <RowTemplate>
+                    <MudTd DataLabel="No. Pembayaran">
+                        <strong>@context.PaymentNumber</strong>
+                    </MudTd>
+                    <MudTd DataLabel="Tanggal">@Display.Date(context.PaymentDate)</MudTd>
+                    <MudTd DataLabel="Jenis">
+                        <MudChip T="string" Size="Size.Small" Color="@ReferenceTypeColor(context.ReferenceType)" Variant="Variant.Outlined">
+                            @Display.Label(context.ReferenceType)
+                        </MudChip>
+                    </MudTd>
+                    <MudTd DataLabel="No. Referensi">@(context.ReferenceNumber ?? "-")</MudTd>
+                    <MudTd DataLabel="Pelanggan / Pemasok">@(string.IsNullOrWhiteSpace(context.PartyName) ? "-" : context.PartyName)</MudTd>
+                    <MudTd DataLabel="Metode">@Display.Label(context.PaymentMethod)</MudTd>
+                    <MudTd DataLabel="Jumlah" Style="text-align:right">
+                        <span class="font-weight-bold">@Display.Rupiah(context.Amount)</span>
+                    </MudTd>
+                    <MudTd DataLabel="Catatan">@(string.IsNullOrWhiteSpace(context.Notes) ? "-" : context.Notes)</MudTd>
+                    <MudTd DataLabel="Aksi" Style="text-align:right; white-space:nowrap">
+                        <MudTooltip Text="Lihat riwayat cicilan dokumen">
+                            <MudIconButton Icon="@Icons.Material.Outlined.History" Size="Size.Small"
+                                           OnClick="() => OpenHistoryFromPaymentAsync(context)" aria-label="Lihat riwayat cicilan" />
+                        </MudTooltip>
+                        @if (_isAdmin)
+                        {
+                            <MudTooltip Text="Hapus / batalkan pembayaran">
+                                <MudIconButton Icon="@Icons.Material.Outlined.Delete" Size="Size.Small" Color="Color.Error"
+                                               OnClick="() => DeletePaymentAsync(context)" aria-label="Hapus pembayaran" />
+                            </MudTooltip>
+                        }
+                    </MudTd>
+                </RowTemplate>
+                <NoRecordsContent>
+                    <MudText Typo="Typo.body2">Tidak ada data riwayat pembayaran.</MudText>
+                </NoRecordsContent>
+                <LoadingContent>
+                    <MudText Typo="Typo.body2">Memuat riwayat pembayaran...</MudText>
+                </LoadingContent>
+            </MudTable>
+        </MudTabPanel>
+
+        <!-- Tab 2: Tagihan Belum Lunas -->
+        <MudTabPanel Text="Tagihan Belum Lunas" Icon="@Icons.Material.Outlined.PendingActions"
+                     BadgeData="@(_allOutstanding.Count > 0 ? _allOutstanding.Count : null)" BadgeColor="Color.Error">
+            <!-- Filter Bar Tab 2 -->
+            <div class="d-flex flex-wrap align-center gap-4 mb-4">
+                <MudTextField T="string" @bind-Value="_outstandingFilter.Search"
+                              Placeholder="Cari no. dokumen atau pihak..."
+                              Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Search"
+                              Immediate="true" DebounceInterval="300" OnDebounceIntervalElapsed="SearchOutstandingAsync"
+                              Variant="Variant.Outlined" Margin="Margin.Dense" Clearable="true" Class="flex-grow-1" />
+
+                <MudSelect T="ReferenceType?" Label="Jenis Tagihan" Value="_outstandingFilter.ReferenceType" ValueChanged="OutstandingReferenceTypeChangedAsync"
+                           Variant="Variant.Outlined" Margin="Margin.Dense" Clearable="true" Style="max-width:220px">
+                    <MudSelectItem T="ReferenceType?" Value="@((ReferenceType?)null)">Semua Tagihan</MudSelectItem>
+                    <MudSelectItem T="ReferenceType?" Value="@((ReferenceType?)ReferenceType.Sale)">Piutang Penjualan</MudSelectItem>
+                    <MudSelectItem T="ReferenceType?" Value="@((ReferenceType?)ReferenceType.PurchaseOrder)">Utang Purchase Order</MudSelectItem>
+                </MudSelect>
+
+                <MudCheckBox T="bool" Value="_outstandingFilter.OnlyOverdue" ValueChanged="OnlyOverdueChangedAsync"
+                             Color="Color.Error" Dense="true" Class="my-auto">
+                    <span class="d-flex align-center gap-1">
+                        <span>Hanya Lewat Jatuh Tempo</span>
+                        @if (_kpiOverdueTotalCount > 0)
+                        {
+                            <MudChip T="string" Size="Size.Small" Color="Color.Error" Variant="Variant.Filled" Class="ma-0 px-1 py-0">
+                                @_kpiOverdueTotalCount
+                            </MudChip>
+                        }
+                    </span>
+                </MudCheckBox>
+            </div>
+
+            <!-- Tabel Tagihan Belum Lunas -->
+            <MudTable Items="_outstandingItems" Loading="_loadingOutstanding" Hover="true" Dense="true" Breakpoint="Breakpoint.Sm"
+                      Class="sia-table" Elevation="0">
+                <HeaderContent>
+                    <MudTh>Jenis</MudTh>
+                    <MudTh>No. Dokumen</MudTh>
+                    <MudTh>Pelanggan / Pemasok</MudTh>
+                    <MudTh>Tanggal Transaksi</MudTh>
+                    <MudTh>Jatuh Tempo</MudTh>
+                    <MudTh Style="text-align:right">Total Tagihan</MudTh>
+                    <MudTh Style="text-align:right">Sudah Dibayar</MudTh>
+                    <MudTh Style="text-align:right">Sisa Tagihan</MudTh>
+                    <MudTh>Status Bayar</MudTh>
+                    <MudTh Style="text-align:right">Aksi</MudTh>
+                </HeaderContent>
+                <RowTemplate>
+                    <MudTd DataLabel="Jenis">
+                        <MudChip T="string" Size="Size.Small" Color="@ReferenceTypeColor(context.ReferenceType)" Variant="Variant.Outlined">
+                            @Display.Label(context.ReferenceType)
+                        </MudChip>
+                    </MudTd>
+                    <MudTd DataLabel="No. Dokumen">
+                        <strong>@context.ReferenceNumber</strong>
+                    </MudTd>
+                    <MudTd DataLabel="Pelanggan / Pemasok">@context.PartyName</MudTd>
+                    <MudTd DataLabel="Tanggal Transaksi">@Display.Date(context.TransactionDate)</MudTd>
+                    <MudTd DataLabel="Jatuh Tempo">
+                        <div class="d-flex align-center gap-1">
+                            @if (context.DueDate is not null)
+                            {
+                                <span>@Display.Date(context.DueDate)</span>
+                                @if (IsOverdue(context))
+                                {
+                                    <MudChip T="string" Size="Size.Small" Color="Color.Error" Variant="Variant.Filled" Class="ma-0 px-1 py-0">Lewat JT</MudChip>
+                                }
+                            }
+                            else
+                            {
+                                <span>-</span>
+                            }
+                        </div>
+                    </MudTd>
+                    <MudTd DataLabel="Total Tagihan" Style="text-align:right">@Display.Rupiah(context.TotalAmount)</MudTd>
+                    <MudTd DataLabel="Sudah Dibayar" Style="text-align:right">@Display.Rupiah(context.PaidAmount)</MudTd>
+                    <MudTd DataLabel="Sisa Tagihan" Style="text-align:right">
+                        <MudText Typo="Typo.body2" Color="Color.Error" Class="font-weight-bold">
+                            @Display.Rupiah(context.RemainingAmount)
+                        </MudText>
+                    </MudTd>
+                    <MudTd DataLabel="Status Bayar">
+                        <MudChip T="string" Size="Size.Small" Color="@StatusColor(context.PaymentStatus)" Variant="Variant.Filled">
+                            @Display.Label(context.PaymentStatus)
+                        </MudChip>
+                    </MudTd>
+                    <MudTd DataLabel="Aksi" Style="text-align:right; white-space:nowrap">
+                        @if (_canManage)
+                        {
+                            <MudButton Variant="Variant.Filled" Color="Color.Primary" Size="Size.Small"
+                                       StartIcon="@Icons.Material.Outlined.Payments"
+                                       OnClick="() => OpenCreatePaymentDialogAsync(context)" Class="mr-1">
+                                Catat Bayar
+                            </MudButton>
+                        }
+                        <MudTooltip Text="Lihat riwayat cicilan dokumen">
+                            <MudIconButton Icon="@Icons.Material.Outlined.History" Size="Size.Small"
+                                           OnClick="() => OpenHistoryFromOutstandingAsync(context)" aria-label="Lihat riwayat cicilan" />
+                        </MudTooltip>
+                    </MudTd>
+                </RowTemplate>
+                <NoRecordsContent>
+                    <MudText Typo="Typo.body2">Tidak ada tagihan yang belum lunas.</MudText>
+                </NoRecordsContent>
+                <LoadingContent>
+                    <MudText Typo="Typo.body2">Memuat daftar tagihan...</MudText>
+                </LoadingContent>
+            </MudTable>
+        </MudTabPanel>
+    </MudTabs>
+</MudPaper>
+
+@code {
+    private bool _loading = true;
+    private bool _loadingPayments;
+    private bool _loadingOutstanding;
+    private bool _canManage;
+    private bool _isAdmin;
+
+    // Data Tab 1
+    private IReadOnlyList<PaymentDto> _payments = Array.Empty<PaymentDto>();
+    private readonly PaymentFilterDto _paymentFilter = new();
+
+    // Data Tab 2
+    private IReadOnlyList<OutstandingDto> _outstandingItems = Array.Empty<OutstandingDto>();
+    private readonly OutstandingFilterDto _outstandingFilter = new();
+
+    // Data Lengkap untuk KPI Ringkasan
+    private IReadOnlyList<PaymentDto> _allPayments = Array.Empty<PaymentDto>();
+    private IReadOnlyList<OutstandingDto> _allOutstanding = Array.Empty<OutstandingDto>();
+
+    // Metrik KPI
+    private decimal _kpiTotalSalePaid;
+    private int _kpiSalePaymentCount;
+    private decimal _kpiTotalPoPaid;
+    private int _kpiPoPaymentCount;
+    private decimal _kpiTotalReceivables;
+    private int _kpiUnpaidSaleCount;
+    private int _kpiOverdueSaleCount;
+    private decimal _kpiTotalPayables;
+    private int _kpiUnpaidPoCount;
+    private int _kpiOverduePoCount;
+    private int _kpiOverdueTotalCount;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var state = await AuthStateProvider.GetAuthenticationStateAsync();
+        var user = state.User;
+        _canManage = (await AuthorizationService.AuthorizeAsync(user, Policies.ManageTransactions)).Succeeded;
+        _isAdmin = (await AuthorizationService.AuthorizeAsync(user, Policies.RequireAdmin)).Succeeded;
+
+        await LoadDataAsync();
+    }
+
+    private async Task LoadDataAsync()
+    {
+        _loading = true;
+        _loadingPayments = true;
+        _loadingOutstanding = true;
+
+        var paymentsResult = await PaymentService.GetAllAsync(_paymentFilter);
+        if (paymentsResult.IsSuccess && paymentsResult.Value != null)
+        {
+            _payments = paymentsResult.Value;
+        }
+        else
+        {
+            Snackbar.Add(paymentsResult.Error ?? "Gagal memuat riwayat pembayaran.", Severity.Error);
+        }
+        _loadingPayments = false;
+
+        var outstandingResult = await PaymentService.GetOutstandingAsync(_outstandingFilter);
+        if (outstandingResult.IsSuccess && outstandingResult.Value != null)
+        {
+            _outstandingItems = outstandingResult.Value;
+        }
+        else
+        {
+            Snackbar.Add(outstandingResult.Error ?? "Gagal memuat tagihan belum lunas.", Severity.Error);
+        }
+        _loadingOutstanding = false;
+
+        var allOutstandingResult = await PaymentService.GetOutstandingAsync(null);
+        if (allOutstandingResult.IsSuccess && allOutstandingResult.Value != null)
+        {
+            _allOutstanding = allOutstandingResult.Value;
+        }
+
+        var allPaymentsResult = await PaymentService.GetAllAsync(new PaymentFilterDto());
+        if (allPaymentsResult.IsSuccess && allPaymentsResult.Value != null)
+        {
+            _allPayments = allPaymentsResult.Value;
+        }
+
+        CalculateKpis();
+        _loading = false;
+    }
+
+    private async Task LoadPaymentsAsync()
+    {
+        _loadingPayments = true;
+        var result = await PaymentService.GetAllAsync(_paymentFilter);
+        if (result.IsSuccess && result.Value != null)
+        {
+            _payments = result.Value;
+        }
+        else
+        {
+            Snackbar.Add(result.Error ?? "Gagal memuat riwayat pembayaran.", Severity.Error);
+        }
+        _loadingPayments = false;
+    }
+
+    private async Task LoadOutstandingAsync()
+    {
+        _loadingOutstanding = true;
+        var result = await PaymentService.GetOutstandingAsync(_outstandingFilter);
+        if (result.IsSuccess && result.Value != null)
+        {
+            _outstandingItems = result.Value;
+        }
+        else
+        {
+            Snackbar.Add(result.Error ?? "Gagal memuat tagihan belum lunas.", Severity.Error);
+        }
+        _loadingOutstanding = false;
+    }
+
+    private void CalculateKpis()
+    {
+        var dateFiltered = _allPayments.AsEnumerable();
+        if (_paymentFilter.DateFrom is not null)
+            dateFiltered = dateFiltered.Where(p => p.PaymentDate.Date >= _paymentFilter.DateFrom.Value.Date);
+        if (_paymentFilter.DateTo is not null)
+            dateFiltered = dateFiltered.Where(p => p.PaymentDate.Date <= _paymentFilter.DateTo.Value.Date);
+        var paymentList = dateFiltered.ToList();
+
+        var salePayments = paymentList.Where(p => p.ReferenceType == ReferenceType.Sale).ToList();
+        _kpiTotalSalePaid = salePayments.Sum(p => p.Amount);
+        _kpiSalePaymentCount = salePayments.Count;
+
+        var poPayments = paymentList.Where(p => p.ReferenceType == ReferenceType.PurchaseOrder).ToList();
+        _kpiTotalPoPaid = poPayments.Sum(p => p.Amount);
+        _kpiPoPaymentCount = poPayments.Count;
+
+        var unpaidSales = _allOutstanding.Where(o => o.ReferenceType == ReferenceType.Sale).ToList();
+        _kpiTotalReceivables = unpaidSales.Sum(o => o.RemainingAmount);
+        _kpiUnpaidSaleCount = unpaidSales.Count;
+        _kpiOverdueSaleCount = unpaidSales.Count(IsOverdue);
+
+        var unpaidPos = _allOutstanding.Where(o => o.ReferenceType == ReferenceType.PurchaseOrder).ToList();
+        _kpiTotalPayables = unpaidPos.Sum(o => o.RemainingAmount);
+        _kpiUnpaidPoCount = unpaidPos.Count;
+        _kpiOverduePoCount = unpaidPos.Count(IsOverdue);
+
+        _kpiOverdueTotalCount = _kpiOverdueSaleCount + _kpiOverduePoCount;
+    }
+
+    // Handlers Filter Tab 1
+    private async Task SearchPaymentsAsync(string value)
+    {
+        _paymentFilter.Search = value;
+        await LoadPaymentsAsync();
+    }
+
+    private async Task PaymentDateFromChangedAsync(DateTime? value)
+    {
+        _paymentFilter.DateFrom = value;
+        CalculateKpis();
+        await LoadPaymentsAsync();
+    }
+
+    private async Task PaymentDateToChangedAsync(DateTime? value)
+    {
+        _paymentFilter.DateTo = value;
+        CalculateKpis();
+        await LoadPaymentsAsync();
+    }
+
+    private async Task PaymentReferenceTypeChangedAsync(ReferenceType? value)
+    {
+        _paymentFilter.ReferenceType = value;
+        await LoadPaymentsAsync();
+    }
+
+    private async Task PaymentMethodChangedAsync(PaymentMethod? value)
+    {
+        _paymentFilter.PaymentMethod = value;
+        await LoadPaymentsAsync();
+    }
+
+    // Handlers Filter Tab 2
+    private async Task SearchOutstandingAsync(string value)
+    {
+        _outstandingFilter.Search = value;
+        await LoadOutstandingAsync();
+    }
+
+    private async Task OutstandingReferenceTypeChangedAsync(ReferenceType? value)
+    {
+        _outstandingFilter.ReferenceType = value;
+        await LoadOutstandingAsync();
+    }
+
+    private async Task OnlyOverdueChangedAsync(bool value)
+    {
+        _outstandingFilter.OnlyOverdue = value;
+        await LoadOutstandingAsync();
+    }
+
+    // Dialog & Action Handlers
+    private async Task OpenCreatePaymentDialogAsync(OutstandingDto? preselected = null)
+    {
+        var parameters = new DialogParameters<CreatePaymentDialog>();
+        if (preselected is not null)
+        {
+            parameters.Add(x => x.PreselectedItem, preselected);
+        }
+
+        var options = new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true, CloseOnEscapeKey = true };
+        var title = preselected is null ? "Catat Pembayaran Baru" : $"Catat Pembayaran — {preselected.ReferenceNumber}";
+
+        var dialog = await DialogService.ShowAsync<CreatePaymentDialog>(title, parameters, options);
+        var result = await dialog.Result;
+        if (result is { Canceled: false })
+        {
+            Snackbar.Add("Pembayaran berhasil dicatat.", Severity.Success);
+            await LoadDataAsync();
+        }
+    }
+
+    private async Task OpenHistoryFromPaymentAsync(PaymentDto payment)
+    {
+        var outstanding = _allOutstanding.FirstOrDefault(o => o.ReferenceType == payment.ReferenceType && o.ReferenceId == payment.ReferenceId);
+        var totalPaidForRef = _allPayments.Where(p => p.ReferenceType == payment.ReferenceType && p.ReferenceId == payment.ReferenceId).Sum(p => p.Amount);
+        var totalAmount = outstanding?.TotalAmount ?? (totalPaidForRef > 0 ? totalPaidForRef : payment.Amount);
+        var remainingAmount = outstanding?.RemainingAmount ?? 0m;
+
+        var parameters = new DialogParameters<PaymentHistoryDialog>
+        {
+            { x => x.ReferenceType, payment.ReferenceType },
+            { x => x.ReferenceId, payment.ReferenceId },
+            { x => x.ReferenceNumber, payment.ReferenceNumber ?? "-" },
+            { x => x.PartyName, payment.PartyName },
+            { x => x.TotalAmount, totalAmount },
+            { x => x.RemainingAmount, remainingAmount }
+        };
+
+        var options = new DialogOptions { MaxWidth = MaxWidth.Medium, FullWidth = true, CloseOnEscapeKey = true };
+        await DialogService.ShowAsync<PaymentHistoryDialog>(
+            $"Riwayat Pembayaran — {payment.ReferenceNumber ?? payment.PaymentNumber}",
+            parameters,
+            options);
+    }
+
+    private async Task OpenHistoryFromOutstandingAsync(OutstandingDto item)
+    {
+        var parameters = new DialogParameters<PaymentHistoryDialog>
+        {
+            { x => x.ReferenceType, item.ReferenceType },
+            { x => x.ReferenceId, item.ReferenceId },
+            { x => x.ReferenceNumber, item.ReferenceNumber },
+            { x => x.PartyName, item.PartyName },
+            { x => x.TotalAmount, item.TotalAmount },
+            { x => x.RemainingAmount, item.RemainingAmount }
+        };
+
+        var options = new DialogOptions { MaxWidth = MaxWidth.Medium, FullWidth = true, CloseOnEscapeKey = true };
+        await DialogService.ShowAsync<PaymentHistoryDialog>(
+            $"Riwayat Pembayaran — {item.ReferenceNumber}",
+            parameters,
+            options);
+    }
+
+    private async Task DeletePaymentAsync(PaymentDto payment)
+    {
+        var docNumber = payment.ReferenceNumber ?? payment.ReferenceId.ToString();
+        var confirm = await DialogService.ShowMessageBox(
+            "Konfirmasi Pembatalan Pembayaran",
+            $"Batalkan pembayaran {payment.PaymentNumber} sebesar {Display.Rupiah(payment.Amount)}? Sisa tagihan pada dokumen {docNumber} akan bertambah kembali.",
+            yesText: "Hapus Pembayaran",
+            cancelText: "Batal");
+
+        if (confirm == true)
+        {
+            var result = await PaymentService.DeleteAsync(payment.Id);
+            if (result.IsSuccess)
+            {
+                Snackbar.Add($"Pembayaran {payment.PaymentNumber} berhasil dibatalkan.", Severity.Success);
+                await LoadDataAsync();
+            }
+            else
+            {
+                Snackbar.Add(result.Error ?? "Gagal membatalkan pembayaran.", Severity.Error);
+            }
+        }
+    }
+
+    // Helpers
+    private static bool IsOverdue(OutstandingDto item) =>
+        item.RemainingAmount > 0 && item.DueDate is not null && item.DueDate.Value.Date < DateTime.Today;
+
+    private static Color StatusColor(PaymentStatus status) => status switch
+    {
+        PaymentStatus.Paid => Color.Success,
+        PaymentStatus.PartiallyPaid => Color.Warning,
+        _ => Color.Error,
+    };
+
+    private static Color ReferenceTypeColor(ReferenceType type) => type switch
+    {
+        ReferenceType.Sale => Color.Info,
+        ReferenceType.PurchaseOrder => Color.Warning,
+        _ => Color.Default,
+    };
+}
