@@ -27,8 +27,33 @@ public sealed class PaymentUIEmpiricalTests
         return dir?.FullName ?? throw new InvalidOperationException("Could not find solution root containing SIA.sln");
     }
 
-    private static readonly string WebAssemblyPath = Path.Combine(
-        FindSolutionRoot(), "src", "SIA.Web", "bin", "Debug", "net8.0", "SIA.Web.dll");
+    private static string ResolveWebAssemblyPath()
+    {
+        var root = FindSolutionRoot();
+        var isRelease = AppContext.BaseDirectory.Contains("Release", StringComparison.OrdinalIgnoreCase);
+        var preferredConfig = isRelease ? "Release" : "Debug";
+        var fallbackConfig = isRelease ? "Debug" : "Release";
+
+        var preferred = Path.Combine(root, "src", "SIA.Web", "bin", preferredConfig, "net8.0", "SIA.Web.dll");
+        if (File.Exists(preferred))
+            return preferred;
+
+        var fallback = Path.Combine(root, "src", "SIA.Web", "bin", fallbackConfig, "net8.0", "SIA.Web.dll");
+        if (File.Exists(fallback))
+            return fallback;
+
+        var binDir = Path.Combine(root, "src", "SIA.Web", "bin");
+        if (Directory.Exists(binDir))
+        {
+            var found = Directory.GetFiles(binDir, "SIA.Web.dll", SearchOption.AllDirectories).FirstOrDefault();
+            if (found is not null)
+                return found;
+        }
+
+        return preferred;
+    }
+
+    private static readonly string WebAssemblyPath = ResolveWebAssemblyPath();
 
     private static readonly string WebPagesPath = Path.Combine(
         FindSolutionRoot(), "src", "SIA.Web", "Components", "Pages", "Payments");
