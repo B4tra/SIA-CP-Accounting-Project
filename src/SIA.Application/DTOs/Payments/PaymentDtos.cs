@@ -37,7 +37,7 @@ public class CreatePaymentDto
     [Range(1, int.MaxValue, ErrorMessage = "Transaksi yang dibayar wajib dipilih.")]
     public int ReferenceId { get; set; }
 
-    [Range(typeof(decimal), "0.01", "79228162514264337593543950335", ErrorMessage = "Jumlah pembayaran harus lebih dari 0.")]
+    [Range(typeof(decimal), "0.01", "79228162514264337593543950335", ParseLimitsInInvariantCulture = true, ErrorMessage = "Jumlah pembayaran harus lebih dari 0.")]
     public decimal Amount { get; set; }
 
     [StringLength(500, ErrorMessage = "Catatan maksimal 500 karakter.")]

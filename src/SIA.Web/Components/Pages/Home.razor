@@ -1,20 +1,797 @@
 @page "/"
 @attribute [Authorize]
+@using SIA.Application.DTOs.Reporting
+@using SIA.Application.DTOs.Sales
+@using SIA.Application.DTOs.Purchasing
+@using SIA.Application.DTOs.Payments
+@using SIA.Application.DTOs.Inventory
+@using SIA.Application.Services.Reporting
+@using SIA.Application.Services.Sales
+@using SIA.Application.Services.Purchasing
+@using SIA.Application.Services.Payments
+@using SIA.Web.Components.Pages.Sales
+@using SIA.Web.Components.Pages.Purchasing
+@inject IDashboardService DashboardService
+@inject ISaleService SaleService
+@inject IPurchaseOrderService PurchaseOrderService
+@inject IDialogService DialogService
+@inject ISnackbar Snackbar
+@inject NavigationManager Navigation
+@inject IAuthorizationService AuthorizationService
+@inject AuthenticationStateProvider AuthStateProvider
 
 <PageTitle>Dashboard - SIA</PageTitle>
 
-<AuthorizeView>
+<AuthorizeView Context="authContext">
     <Authorized>
-        <h1 class="sia-page-title">Energi bisnis Anda, hari ini.</h1>
-        <MudText Typo="Typo.body2" Class="mud-text-secondary">
-            Selamat datang, @UserDisplay.DisplayName(context.User). Anda masuk sebagai @UserDisplay.RoleLabel(context.User).
-        </MudText>
+        <!-- Header & Quick Actions Bar -->
+        <div class="d-flex flex-wrap align-center justify-space-between gap-4 mb-6">
+            <div>
+                <h1 class="sia-page-title">Energi bisnis Anda, hari ini.</h1>
+                <MudText Typo="Typo.body2" Class="mud-text-secondary">
+                    Selamat datang, @UserDisplay.DisplayName(authContext.User). Anda masuk sebagai @UserDisplay.RoleLabel(authContext.User).
+                </MudText>
+            </div>
+            <div class="d-flex flex-wrap align-center gap-2">
+                @if (_canManage)
+                {
+                    <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.AddShoppingCart"
+                               Href="sales/new">Penjualan Baru</MudButton>
+                    <MudButton Variant="Variant.Outlined" Color="Color.Primary" StartIcon="@Icons.Material.Filled.AddBusiness"
+                               Href="purchase-orders/new">Buat PO</MudButton>
+                }
+                @if (_canInputJournal)
+                {
+                    <MudButton Variant="Variant.Outlined" Color="Color.Primary" StartIcon="@Icons.Material.Filled.PostAdd"
+                               Href="journal-entries">Jurnal Umum</MudButton>
+                }
+                @if (_canViewReports)
+                {
+                    <MudButton Variant="Variant.Outlined" Color="Color.Primary" StartIcon="@Icons.Material.Filled.QueryStats"
+                               Href="reports/income-statement">Laporan Laba Rugi</MudButton>
+                }
+                <MudButton Variant="Variant.Outlined" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Refresh"
+                           OnClick="() => LoadDashboardAsync()" Disabled="_loading">Muat Ulang</MudButton>
+            </div>
+        </div>
 
-        <MudPaper Outlined="true" Class="sia-card pa-6 mt-6">
-            <MudText Typo="Typo.h6">Sistem Informasi Akuntansi</MudText>
-            <MudText Typo="Typo.body2" Class="mud-text-secondary">
-                Toko Aki/Baterai Kendaraan. Ringkasan dashboard akan tersedia pada tahap berikutnya.
-            </MudText>
-        </MudPaper>
+        @if (_loading && _summary is null)
+        {
+            <div class="d-flex justify-center align-center pa-12">
+                <MudProgressCircular Color="Color.Primary" Indeterminate="true" Size="Size.Large" />
+            </div>
+        }
+        else if (!string.IsNullOrEmpty(_errorMessage))
+        {
+            <MudAlert Severity="Severity.Error" Variant="Variant.Outlined" Class="mb-6">
+                @_errorMessage
+                <MudButton Variant="Variant.Text" Color="Color.Error" OnClick="() => LoadDashboardAsync()" Class="ml-2">Coba Lagi</MudButton>
+            </MudAlert>
+        }
+        else if (_summary is not null)
+        {
+            @if (_loading)
+            {
+                <MudProgressLinear Color="Color.Secondary" Indeterminate="true" Class="mb-4" />
+            }
+
+            <!-- Baris Kartu KPI (4 Operasional + 2 Keuangan jika CanViewFinancials) -->
+            <MudGrid Spacing="3" Class="mb-6">
+                <!-- 1. Penjualan Bersih -->
+                <MudItem xs="12" sm="6" md="@(_summary.CanViewFinancials ? 4 : 3)">
+                    <MudPaper Outlined="true" Class="sia-card pa-4 h-100 d-flex flex-column justify-space-between">
+                        <div>
+                            <div class="d-flex align-center justify-space-between mb-2">
+                                <MudText Typo="Typo.caption" Class="mud-text-secondary text-uppercase font-weight-bold">Penjualan Bersih (Hari Ini)</MudText>
+                                <MudIcon Icon="@Icons.Material.Outlined.TrendingUp" Color="Color.Secondary" Size="Size.Small" />
+                            </div>
+                            <MudText Typo="Typo.h5" Class="font-weight-bold">@Display.Rupiah(_summary.TodayNetSales)</MudText>
+                        </div>
+                        <div class="d-flex align-center justify-space-between mt-3 pt-2 border-t">
+                            <MudText Typo="Typo.caption" Class="mud-text-secondary">@_summary.TodaySaleCount nota hari ini</MudText>
+                            <MudText Typo="Typo.caption">Bulan ini: <strong>@Display.Rupiah(_summary.MonthNetSales)</strong></MudText>
+                        </div>
+                    </MudPaper>
+                </MudItem>
+
+                <!-- 2. Piutang Pelanggan -->
+                <MudItem xs="12" sm="6" md="@(_summary.CanViewFinancials ? 4 : 3)">
+                    <MudPaper Outlined="true" Class="sia-card pa-4 h-100 d-flex flex-column justify-space-between">
+                        <div>
+                            <div class="d-flex align-center justify-space-between mb-2">
+                                <MudText Typo="Typo.caption" Class="mud-text-secondary text-uppercase font-weight-bold">Piutang Pelanggan</MudText>
+                                <MudIcon Icon="@Icons.Material.Outlined.ReceiptLong" Color="Color.Primary" Size="Size.Small" />
+                            </div>
+                            <MudText Typo="Typo.h5" Class="font-weight-bold">@Display.Rupiah(_summary.TotalReceivables)</MudText>
+                        </div>
+                        <div class="d-flex align-center justify-space-between mt-3 pt-2 border-t">
+                            <MudText Typo="Typo.caption" Class="mud-text-secondary">@_summary.UnpaidSaleCount invoice belum lunas</MudText>
+                            @if (_summary.OverdueReceivableCount > 0)
+                            {
+                                <MudChip T="string" Size="Size.Small" Color="Color.Error" Variant="Variant.Filled" Class="ma-0 px-2 font-weight-bold">
+                                    @_summary.OverdueReceivableCount Lewat JT
+                                </MudChip>
+                            }
+                            else
+                            {
+                                <MudChip T="string" Size="Size.Small" Color="Color.Success" Variant="Variant.Outlined" Class="ma-0 px-2">Aman</MudChip>
+                            }
+                        </div>
+                    </MudPaper>
+                </MudItem>
+
+                <!-- 3. Utang Usaha & PO -->
+                <MudItem xs="12" sm="6" md="@(_summary.CanViewFinancials ? 4 : 3)">
+                    <MudPaper Outlined="true" Class="sia-card pa-4 h-100 d-flex flex-column justify-space-between">
+                        <div>
+                            <div class="d-flex align-center justify-space-between mb-2">
+                                <MudText Typo="Typo.caption" Class="mud-text-secondary text-uppercase font-weight-bold">Utang Usaha & PO</MudText>
+                                <MudIcon Icon="@Icons.Material.Outlined.ShoppingCartCheckout" Color="Color.Primary" Size="Size.Small" />
+                            </div>
+                            <MudText Typo="Typo.h5" Class="font-weight-bold">@Display.Rupiah(_summary.TotalPayables)</MudText>
+                        </div>
+                        <div class="d-flex align-center justify-space-between mt-3 pt-2 border-t">
+                            <MudText Typo="Typo.caption" Class="mud-text-secondary">@_summary.UnpaidPoCount PO belum lunas</MudText>
+                            <div class="d-flex gap-1">
+                                @if (_summary.OverduePayableCount > 0)
+                                {
+                                    <MudChip T="string" Size="Size.Small" Color="Color.Error" Variant="Variant.Filled" Class="ma-0 px-2 font-weight-bold">
+                                        @_summary.OverduePayableCount Lewat JT
+                                    </MudChip>
+                                }
+                                @if (_summary.DraftPoCount > 0 || _summary.ApprovedPoCount > 0)
+                                {
+                                    <MudChip T="string" Size="Size.Small" Color="Color.Warning" Variant="Variant.Outlined" Class="ma-0 px-2">
+                                        @(_summary.DraftPoCount + _summary.ApprovedPoCount) Antre PO
+                                    </MudChip>
+                                }
+                            </div>
+                        </div>
+                    </MudPaper>
+                </MudItem>
+
+                <!-- 4. Status Stok Aki -->
+                <MudItem xs="12" sm="6" md="@(_summary.CanViewFinancials ? 4 : 3)">
+                    <MudPaper Outlined="true" Class="sia-card pa-4 h-100 d-flex flex-column justify-space-between">
+                        <div>
+                            <div class="d-flex align-center justify-space-between mb-2">
+                                <MudText Typo="Typo.caption" Class="mud-text-secondary text-uppercase font-weight-bold">Status Stok Aki</MudText>
+                                <MudIcon Icon="@Icons.Material.Outlined.BatteryAlert" Color="Color.Primary" Size="Size.Small" />
+                            </div>
+                            <div class="d-flex align-baseline gap-2">
+                                <MudText Typo="Typo.h5" Class="font-weight-bold" Color="@(_summary.LowStockProductCount > 0 ? Color.Warning : Color.Default)">
+                                    @_summary.LowStockProductCount SKU
+                                </MudText>
+                                <MudText Typo="Typo.caption" Class="mud-text-secondary">perlu restock</MudText>
+                            </div>
+                        </div>
+                        <div class="d-flex align-center justify-space-between mt-3 pt-2 border-t">
+                            <MudText Typo="Typo.caption" Class="mud-text-secondary">Total @_summary.TotalActiveProductCount produk aktif</MudText>
+                            @if (_summary.OutOfStockProductCount > 0)
+                            {
+                                <MudChip T="string" Size="Size.Small" Color="Color.Error" Variant="Variant.Filled" Class="ma-0 px-2 font-weight-bold">
+                                    @_summary.OutOfStockProductCount Habis (0)
+                                </MudChip>
+                            }
+                            else
+                            {
+                                <MudChip T="string" Size="Size.Small" Color="Color.Success" Variant="Variant.Outlined" Class="ma-0 px-2">Stok Aman</MudChip>
+                            }
+                        </div>
+                    </MudPaper>
+                </MudItem>
+
+                @if (_summary.CanViewFinancials)
+                {
+                    <!-- 5. Saldo Kas & Bank (Khusus Admin & Viewer) -->
+                    <MudItem xs="12" sm="6" md="4">
+                        <MudPaper Outlined="true" Class="sia-card pa-4 h-100 d-flex flex-column justify-space-between">
+                            <div>
+                                <div class="d-flex align-center justify-space-between mb-2">
+                                    <MudText Typo="Typo.caption" Class="mud-text-secondary text-uppercase font-weight-bold">Saldo Kas & Bank</MudText>
+                                    <MudIcon Icon="@Icons.Material.Outlined.AccountBalance" Color="Color.Primary" Size="Size.Small" />
+                                </div>
+                                <MudText Typo="Typo.h5" Class="font-weight-bold">@Display.Rupiah(_summary.CashAndBankBalance ?? 0m)</MudText>
+                            </div>
+                            <div class="d-flex align-center justify-space-between mt-3 pt-2 border-t">
+                                <MudText Typo="Typo.caption" Class="mud-text-secondary">Kas (1-1001) & Bank (1-1002)</MudText>
+                                <MudLink Href="accounts" Typo="Typo.caption" Color="Color.Primary" Underline="Underline.Always">Bagan Akun</MudLink>
+                            </div>
+                        </MudPaper>
+                    </MudItem>
+
+                    <!-- 6. Laba Bersih Bulan Ini (Khusus Admin & Viewer) -->
+                    <MudItem xs="12" sm="6" md="4">
+                        <MudPaper Outlined="true" Class="sia-card pa-4 h-100 d-flex flex-column justify-space-between">
+                            <div>
+                                <div class="d-flex align-center justify-space-between mb-2">
+                                    <MudText Typo="Typo.caption" Class="mud-text-secondary text-uppercase font-weight-bold">Laba Bersih Bulan Ini</MudText>
+                                    <MudIcon Icon="@Icons.Material.Outlined.AttachMoney" Color="@((_summary.CurrentMonthNetIncome ?? 0m) >= 0 ? Color.Success : Color.Error)" Size="Size.Small" />
+                                </div>
+                                <MudText Typo="Typo.h5" Class="font-weight-bold" Color="@((_summary.CurrentMonthNetIncome ?? 0m) >= 0 ? Color.Success : Color.Error)">
+                                    @Display.Rupiah(_summary.CurrentMonthNetIncome ?? 0m)
+                                </MudText>
+                            </div>
+                            <div class="d-flex align-center justify-space-between mt-3 pt-2 border-t">
+                                <MudText Typo="Typo.caption" Class="mud-text-secondary">
+                                    Pend: @Display.Rupiah(_summary.CurrentMonthRevenue ?? 0m) | Beb: @Display.Rupiah(_summary.CurrentMonthExpenses ?? 0m)
+                                </MudText>
+                                <MudLink Href="reports/income-statement" Typo="Typo.caption" Color="Color.Primary" Underline="Underline.Always">Laba Rugi</MudLink>
+                            </div>
+                        </MudPaper>
+                    </MudItem>
+                }
+            </MudGrid>
+
+            <!-- Area Visualisasi: Tren Penjualan vs Pembelian + Top 5 Produk Aki Terlaris -->
+            <MudGrid Spacing="3" Class="mb-6">
+                <!-- Grafik Tren Penjualan vs Pembelian (Kiri - 7 Kolom) -->
+                <MudItem xs="12" lg="7">
+                    <MudPaper Outlined="true" Class="sia-card pa-4 h-100 d-flex flex-column justify-space-between">
+                        <div>
+                            <div class="d-flex flex-wrap align-center justify-space-between gap-2 mb-4">
+                                <div>
+                                    <MudText Typo="Typo.subtitle1" Class="font-weight-bold">Tren Penjualan vs Pembelian</MudText>
+                                    <MudText Typo="Typo.caption" Class="mud-text-secondary">Perbandingan nilai bersih setelah retur transaksi.</MudText>
+                                </div>
+                                <div class="d-flex gap-1">
+                                    <MudButton Variant="@(_selectedPeriod == DashboardTrendPeriod.Last7Days ? Variant.Filled : Variant.Outlined)"
+                                               Color="Color.Primary" Size="Size.Small"
+                                               OnClick="() => OnPeriodChangedAsync(DashboardTrendPeriod.Last7Days)">7 Hari</MudButton>
+                                    <MudButton Variant="@(_selectedPeriod == DashboardTrendPeriod.ThisMonth ? Variant.Filled : Variant.Outlined)"
+                                               Color="Color.Primary" Size="Size.Small"
+                                               OnClick="() => OnPeriodChangedAsync(DashboardTrendPeriod.ThisMonth)">Bulan Ini</MudButton>
+                                    <MudButton Variant="@(_selectedPeriod == DashboardTrendPeriod.ThisYear ? Variant.Filled : Variant.Outlined)"
+                                               Color="Color.Primary" Size="Size.Small"
+                                               OnClick="() => OnPeriodChangedAsync(DashboardTrendPeriod.ThisYear)">Tahun Ini</MudButton>
+                                </div>
+                            </div>
+
+                            @if (_chartSeries.Count == 0 || _xAxisLabels.Length == 0)
+                            {
+                                <div class="pa-12 text-center">
+                                    <MudText Typo="Typo.body2" Class="mud-text-secondary">Belum ada data transaksi pada periode ini.</MudText>
+                                </div>
+                            }
+                            else
+                            {
+                                <MudChart ChartType="ChartType.Bar" ChartSeries="@_chartSeries" XAxisLabels="@_xAxisLabels"
+                                          Width="100%" Height="300px" ChartOptions="@_chartOptions" />
+                            }
+                        </div>
+                        <div class="d-flex align-center justify-space-between mt-2 pt-2 border-t">
+                            <div class="d-flex align-center gap-3">
+                                <div class="d-flex align-center gap-1">
+                                    <span style="display:inline-block; width:12px; height:12px; border-radius:2px; background-color:@SiaColors.GreenStrong;"></span>
+                                    <MudText Typo="Typo.caption">Penjualan Bersih</MudText>
+                                </div>
+                                <div class="d-flex align-center gap-1">
+                                    <span style="display:inline-block; width:12px; height:12px; border-radius:2px; background-color:@SiaColors.Black;"></span>
+                                    <MudText Typo="Typo.caption">Pembelian Diterima</MudText>
+                                </div>
+                            </div>
+                            <MudText Typo="Typo.caption" Class="mud-text-secondary">Satuan Rupiah (Rp)</MudText>
+                        </div>
+                    </MudPaper>
+                </MudItem>
+
+                <!-- Top 5 Produk Aki Terlaris (Kanan - 5 Kolom) -->
+                <MudItem xs="12" lg="5">
+                    <MudPaper Outlined="true" Class="sia-card pa-4 h-100 d-flex flex-column justify-space-between">
+                        <div>
+                            <div class="mb-3">
+                                <MudText Typo="Typo.subtitle1" Class="font-weight-bold">Top 5 Produk Terlaris</MudText>
+                                <MudText Typo="Typo.caption" Class="mud-text-secondary">Kuantitas bersih terjual pada periode terpilih.</MudText>
+                            </div>
+
+                            @if (_summary.TopProducts.Count == 0)
+                            {
+                                <div class="pa-12 text-center">
+                                    <MudText Typo="Typo.body2" Class="mud-text-secondary">Belum ada data penjualan produk pada periode ini.</MudText>
+                                </div>
+                            }
+                            else
+                            {
+                                <div class="d-flex flex-column gap-3">
+                                    @foreach (var prod in _summary.TopProducts)
+                                    {
+                                        <div>
+                                            <div class="d-flex justify-space-between align-center mb-1">
+                                                <div style="max-width: 65%;">
+                                                    <MudText Typo="Typo.body2" Class="font-weight-bold text-truncate">@prod.ProductName</MudText>
+                                                    <MudText Typo="Typo.caption" Class="mud-text-secondary">
+                                                        @(string.IsNullOrEmpty(prod.Brand) ? "" : $"{prod.Brand} • ")SKU: @(prod.SKU ?? "-")
+                                                    </MudText>
+                                                </div>
+                                                <div class="text-right">
+                                                    <MudText Typo="Typo.body2" Class="font-weight-bold">@prod.NetQuantitySold unit</MudText>
+                                                    <MudText Typo="Typo.caption" Class="mud-text-secondary">@Display.Rupiah(prod.NetRevenue)</MudText>
+                                                </div>
+                                            </div>
+                                            <MudProgressLinear Color="Color.Secondary" Size="Size.Small" Value="@prod.SharePercentage" Rounded="true" Class="my-1" />
+                                            <div class="d-flex justify-end">
+                                                <MudText Typo="Typo.caption" Class="mud-text-secondary">@prod.SharePercentage.ToString("F1")% pangsa produk</MudText>
+                                            </div>
+                                        </div>
+                                    }
+                                </div>
+                            }
+                        </div>
+                        <div class="mt-2 pt-2 border-t text-right">
+                            <MudLink Href="products" Typo="Typo.caption" Color="Color.Primary" Underline="Underline.Always">Lihat Katalog Produk</MudLink>
+                        </div>
+                    </MudPaper>
+                </MudItem>
+            </MudGrid>
+
+            <!-- 4 Panel Operasional Bawah (Grid 2x2) -->
+            <MudGrid Spacing="3">
+                <!-- Panel 1: Peringatan Stok Minimum -->
+                <MudItem xs="12" lg="6">
+                    <MudPaper Outlined="true" Class="sia-card pa-4 h-100 d-flex flex-column justify-space-between">
+                        <div>
+                            <div class="d-flex align-center justify-space-between mb-3">
+                                <div>
+                                    <MudText Typo="Typo.subtitle1" Class="font-weight-bold">Peringatan Stok Minimum</MudText>
+                                    <MudText Typo="Typo.caption" Class="mud-text-secondary">Stok produk mencapai atau di bawah batas minimum.</MudText>
+                                </div>
+                                @if (_canManage)
+                                {
+                                    <MudButton Variant="Variant.Outlined" Color="Color.Primary" Size="Size.Small"
+                                               StartIcon="@Icons.Material.Filled.Add" Href="purchase-orders/new">Buat PO</MudButton>
+                                }
+                            </div>
+
+                            <MudTable Items="@_summary.LowStockAlerts" Dense="true" Elevation="0" Class="sia-table" Hover="true">
+                                <HeaderContent>
+                                    <MudTh>Produk</MudTh>
+                                    <MudTh Style="text-align:center">Stok</MudTh>
+                                    <MudTh Style="text-align:center">Batas Min</MudTh>
+                                    <MudTh Style="text-align:right">Aksi</MudTh>
+                                </HeaderContent>
+                                <RowTemplate Context="alert">
+                                    <MudTd DataLabel="Produk">
+                                        <MudText Typo="Typo.body2" Class="font-weight-bold">@alert.ProductName</MudText>
+                                        <MudText Typo="Typo.caption" Class="mud-text-secondary">
+                                            @(string.IsNullOrEmpty(alert.Brand) ? "" : $"{alert.Brand} • ")SKU: @(alert.SKU ?? "-")
+                                        </MudText>
+                                    </MudTd>
+                                    <MudTd DataLabel="Stok" Style="text-align:center">
+                                        @if (alert.Stock <= 0)
+                                        {
+                                            <MudChip T="string" Color="Color.Error" Size="Size.Small" Variant="Variant.Filled" Class="font-weight-bold">
+                                                Habis (@alert.Stock)
+                                            </MudChip>
+                                        }
+                                        else
+                                        {
+                                            <MudChip T="string" Color="Color.Warning" Size="Size.Small" Variant="Variant.Filled" Class="font-weight-bold">
+                                                Menipis (@alert.Stock)
+                                            </MudChip>
+                                        }
+                                    </MudTd>
+                                    <MudTd DataLabel="Batas Min" Style="text-align:center">
+                                        <MudText Typo="Typo.body2">@alert.ReorderPoint</MudText>
+                                    </MudTd>
+                                    <MudTd DataLabel="Aksi" Style="text-align:right">
+                                        @if (_canManage)
+                                        {
+                                            <MudTooltip Text="Buat Purchase Order">
+                                                <MudIconButton Icon="@Icons.Material.Outlined.AddShoppingCart" Size="Size.Small" Color="Color.Primary"
+                                                               Href="purchase-orders/new" aria-label="Buat PO" />
+                                            </MudTooltip>
+                                        }
+                                    </MudTd>
+                                </RowTemplate>
+                                <NoRecordsContent>
+                                    <div class="pa-4 text-center">
+                                        <MudText Typo="Typo.body2" Class="mud-text-secondary">Semua stok produk berada di atas batas minimum.</MudText>
+                                    </div>
+                                </NoRecordsContent>
+                            </MudTable>
+                        </div>
+                        <div class="mt-2 pt-2 border-t text-right">
+                            <MudLink Href="stock-cards" Typo="Typo.caption" Color="Color.Primary" Underline="Underline.Always">Buka Kartu Stok</MudLink>
+                        </div>
+                    </MudPaper>
+                </MudItem>
+
+                <!-- Panel 2: Piutang & Utang Jatuh Tempo -->
+                <MudItem xs="12" lg="6">
+                    <MudPaper Outlined="true" Class="sia-card pa-4 h-100 d-flex flex-column justify-space-between">
+                        <div>
+                            <div class="d-flex align-center justify-space-between mb-3">
+                                <div>
+                                    <MudText Typo="Typo.subtitle1" Class="font-weight-bold">Piutang & Utang Jatuh Tempo</MudText>
+                                    <MudText Typo="Typo.caption" Class="mud-text-secondary">Tagihan dan utang yang mendekati atau telah lewat jatuh tempo.</MudText>
+                                </div>
+                                <MudButton Variant="Variant.Text" Color="Color.Primary" Size="Size.Small"
+                                           EndIcon="@Icons.Material.Filled.ArrowForward" Href="payments">Semua Tagihan</MudButton>
+                            </div>
+
+                            <MudTable Items="@_summary.DueAndOverdueItems" Dense="true" Elevation="0" Class="sia-table" Hover="true">
+                                <HeaderContent>
+                                    <MudTh>Transaksi & Pihak</MudTh>
+                                    <MudTh>Jatuh Tempo</MudTh>
+                                    <MudTh Style="text-align:right">Sisa Tagihan</MudTh>
+                                    <MudTh Style="text-align:right">Aksi</MudTh>
+                                </HeaderContent>
+                                <RowTemplate Context="item">
+                                    <MudTd DataLabel="Transaksi & Pihak">
+                                        <div class="d-flex align-center gap-1">
+                                            <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined"
+                                                     Color="@(item.ReferenceType == ReferenceType.Sale ? Color.Info : Color.Warning)" Class="ma-0 px-1">
+                                                @(item.ReferenceType == ReferenceType.Sale ? "Piutang" : "Utang")
+                                            </MudChip>
+                                            <MudText Typo="Typo.body2" Class="font-weight-bold">@item.ReferenceNumber</MudText>
+                                        </div>
+                                        <MudText Typo="Typo.caption" Class="mud-text-secondary">@item.PartyName</MudText>
+                                    </MudTd>
+                                    <MudTd DataLabel="Jatuh Tempo">
+                                        <MudText Typo="Typo.body2">@Display.Date(item.DueDate)</MudText>
+                                        @if (item.DueDate.HasValue && item.DueDate.Value.Date < DateTime.Today)
+                                        {
+                                            <MudChip T="string" Size="Size.Small" Color="Color.Error" Variant="Variant.Filled" Class="ma-0 px-1 font-weight-bold">
+                                                Lewat JT
+                                            </MudChip>
+                                        }
+                                        else if (item.DueDate.HasValue && (item.DueDate.Value.Date - DateTime.Today).TotalDays <= 7)
+                                        {
+                                            <MudChip T="string" Size="Size.Small" Color="Color.Warning" Variant="Variant.Filled" Class="ma-0 px-1 font-weight-bold">
+                                                ≤ 7 Hari
+                                            </MudChip>
+                                        }
+                                    </MudTd>
+                                    <MudTd DataLabel="Sisa Tagihan" Style="text-align:right">
+                                        <MudText Typo="Typo.body2" Class="font-weight-bold" Color="Color.Error">@Display.Rupiah(item.RemainingAmount)</MudText>
+                                        <MudText Typo="Typo.caption" Class="mud-text-secondary">dari @Display.Rupiah(item.TotalAmount)</MudText>
+                                    </MudTd>
+                                    <MudTd DataLabel="Aksi" Style="text-align:right">
+                                        @if (_canManage)
+                                        {
+                                            <MudButton Size="Size.Small" Variant="Variant.Filled" Color="Color.Primary"
+                                                       StartIcon="@Icons.Material.Outlined.Payments"
+                                                       OnClick="() => RecordOutstandingPaymentAsync(item)">Bayar</MudButton>
+                                        }
+                                    </MudTd>
+                                </RowTemplate>
+                                <NoRecordsContent>
+                                    <div class="pa-4 text-center">
+                                        <MudText Typo="Typo.body2" Class="mud-text-secondary">Tidak ada piutang atau utang yang mendekati jatuh tempo.</MudText>
+                                    </div>
+                                </NoRecordsContent>
+                            </MudTable>
+                        </div>
+                        <div class="mt-2 pt-2 border-t text-right">
+                            <MudLink Href="payments" Typo="Typo.caption" Color="Color.Primary" Underline="Underline.Always">Buka Menu Pembayaran</MudLink>
+                        </div>
+                    </MudPaper>
+                </MudItem>
+
+                <!-- Panel 3: Antrean Purchase Order -->
+                <MudItem xs="12" lg="6">
+                    <MudPaper Outlined="true" Class="sia-card pa-4 h-100 d-flex flex-column justify-space-between">
+                        <div>
+                            <div class="d-flex align-center justify-space-between mb-3">
+                                <div>
+                                    <MudText Typo="Typo.subtitle1" Class="font-weight-bold">Antrean Purchase Order</MudText>
+                                    <MudText Typo="Typo.caption" Class="mud-text-secondary">PO berstatus Draft (butuh persetujuan) dan Disetujui (siap diterima).</MudText>
+                                </div>
+                                <MudButton Variant="Variant.Text" Color="Color.Primary" Size="Size.Small"
+                                           EndIcon="@Icons.Material.Filled.ArrowForward" Href="purchase-orders">Semua PO</MudButton>
+                            </div>
+
+                            <MudTable Items="@_summary.PendingPurchaseOrders" Dense="true" Elevation="0" Class="sia-table" Hover="true">
+                                <HeaderContent>
+                                    <MudTh>No. PO & Tanggal</MudTh>
+                                    <MudTh>Pemasok</MudTh>
+                                    <MudTh Style="text-align:right">Total</MudTh>
+                                    <MudTh Style="text-align:center">Status</MudTh>
+                                    <MudTh Style="text-align:right">Aksi</MudTh>
+                                </HeaderContent>
+                                <RowTemplate Context="po">
+                                    <MudTd DataLabel="No. PO & Tanggal">
+                                        <MudText Typo="Typo.body2" Class="font-weight-bold">@po.PONumber</MudText>
+                                        <MudText Typo="Typo.caption" Class="mud-text-secondary">@Display.Date(po.OrderDate)</MudText>
+                                    </MudTd>
+                                    <MudTd DataLabel="Pemasok">
+                                        <MudText Typo="Typo.body2">@po.SupplierName</MudText>
+                                    </MudTd>
+                                    <MudTd DataLabel="Total" Style="text-align:right">
+                                        <MudText Typo="Typo.body2" Class="font-weight-bold">@Display.Rupiah(po.TotalAmount)</MudText>
+                                    </MudTd>
+                                    <MudTd DataLabel="Status" Style="text-align:center">
+                                        @if (po.Status == PurchaseOrderStatus.Draft)
+                                        {
+                                            <MudChip T="string" Size="Size.Small" Color="Color.Default" Variant="Variant.Outlined">Draft</MudChip>
+                                        }
+                                        else if (po.Status == PurchaseOrderStatus.Approved)
+                                        {
+                                            <MudChip T="string" Size="Size.Small" Color="Color.Info" Variant="Variant.Filled">Disetujui</MudChip>
+                                        }
+                                    </MudTd>
+                                    <MudTd DataLabel="Aksi" Style="text-align:right">
+                                        <div class="d-flex justify-end gap-1">
+                                            @if (_canApprove && po.Status == PurchaseOrderStatus.Draft)
+                                            {
+                                                <MudButton Size="Size.Small" Variant="Variant.Filled" Color="Color.Secondary"
+                                                           OnClick="() => ApprovePoAsync(po)">Setujui</MudButton>
+                                            }
+                                            @if (_canManage && po.Status == PurchaseOrderStatus.Approved)
+                                            {
+                                                <MudButton Size="Size.Small" Variant="Variant.Filled" Color="Color.Primary"
+                                                           OnClick="() => ReceivePoAsync(po)">Terima</MudButton>
+                                            }
+                                            <MudTooltip Text="Detail PO">
+                                                <MudIconButton Icon="@Icons.Material.Outlined.Visibility" Size="Size.Small"
+                                                               Href="purchase-orders" aria-label="Detail PO" />
+                                            </MudTooltip>
+                                        </div>
+                                    </MudTd>
+                                </RowTemplate>
+                                <NoRecordsContent>
+                                    <div class="pa-4 text-center">
+                                        <MudText Typo="Typo.body2" Class="mud-text-secondary">Tidak ada antrean Purchase Order saat ini.</MudText>
+                                    </div>
+                                </NoRecordsContent>
+                            </MudTable>
+                        </div>
+                        <div class="mt-2 pt-2 border-t text-right">
+                            <MudLink Href="purchase-orders" Typo="Typo.caption" Color="Color.Primary" Underline="Underline.Always">Buka Daftar PO</MudLink>
+                        </div>
+                    </MudPaper>
+                </MudItem>
+
+                <!-- Panel 4: 5 Transaksi Penjualan Terbaru -->
+                <MudItem xs="12" lg="6">
+                    <MudPaper Outlined="true" Class="sia-card pa-4 h-100 d-flex flex-column justify-space-between">
+                        <div>
+                            <div class="d-flex align-center justify-space-between mb-3">
+                                <div>
+                                    <MudText Typo="Typo.subtitle1" Class="font-weight-bold">5 Penjualan Terbaru</MudText>
+                                    <MudText Typo="Typo.caption" Class="mud-text-secondary">Transaksi penjualan terkini dari toko.</MudText>
+                                </div>
+                                <MudButton Variant="Variant.Text" Color="Color.Primary" Size="Size.Small"
+                                           EndIcon="@Icons.Material.Filled.ArrowForward" Href="sales">Semua Penjualan</MudButton>
+                            </div>
+
+                            <MudTable Items="@_summary.RecentSales" Dense="true" Elevation="0" Class="sia-table" Hover="true">
+                                <HeaderContent>
+                                    <MudTh>No. Invoice & Tanggal</MudTh>
+                                    <MudTh>Pelanggan</MudTh>
+                                    <MudTh Style="text-align:right">Total</MudTh>
+                                    <MudTh Style="text-align:center">Status</MudTh>
+                                    <MudTh Style="text-align:right">Aksi</MudTh>
+                                </HeaderContent>
+                                <RowTemplate Context="sale">
+                                    <MudTd DataLabel="No. Invoice & Tanggal">
+                                        <MudText Typo="Typo.body2" Class="font-weight-bold">@sale.InvoiceNumber</MudText>
+                                        <MudText Typo="Typo.caption" Class="mud-text-secondary">@Display.Date(sale.SaleDate)</MudText>
+                                    </MudTd>
+                                    <MudTd DataLabel="Pelanggan">
+                                        <MudText Typo="Typo.body2">@sale.CustomerName</MudText>
+                                    </MudTd>
+                                    <MudTd DataLabel="Total" Style="text-align:right">
+                                        <MudText Typo="Typo.body2" Class="font-weight-bold">@Display.Rupiah(sale.TotalAmount)</MudText>
+                                    </MudTd>
+                                    <MudTd DataLabel="Status" Style="text-align:center">
+                                        @if (sale.PaymentStatus == PaymentStatus.Paid)
+                                        {
+                                            <MudChip T="string" Size="Size.Small" Color="Color.Success" Variant="Variant.Filled">Lunas</MudChip>
+                                        }
+                                        else if (sale.PaymentStatus == PaymentStatus.PartiallyPaid)
+                                        {
+                                            <MudChip T="string" Size="Size.Small" Color="Color.Warning" Variant="Variant.Filled">Sebagian</MudChip>
+                                        }
+                                        else
+                                        {
+                                            <MudChip T="string" Size="Size.Small" Color="Color.Error" Variant="Variant.Filled">Belum Bayar</MudChip>
+                                        }
+                                    </MudTd>
+                                    <MudTd DataLabel="Aksi" Style="text-align:right">
+                                        <div class="d-flex justify-end gap-1">
+                                            <MudTooltip Text="Lihat / Cetak Nota">
+                                                <MudIconButton Icon="@Icons.Material.Outlined.Print" Size="Size.Small"
+                                                               Href="@($"sales/{sale.Id}/print")" aria-label="Lihat atau cetak nota" />
+                                            </MudTooltip>
+                                            @if (_canManage && sale.RemainingAmount > 0)
+                                            {
+                                                <MudTooltip Text="Catat Pembayaran">
+                                                    <MudIconButton Icon="@Icons.Material.Outlined.Payments" Size="Size.Small" Color="Color.Secondary"
+                                                                   OnClick="() => RecordSalePaymentAsync(sale)" aria-label="Catat pembayaran" />
+                                                </MudTooltip>
+                                            }
+                                        </div>
+                                    </MudTd>
+                                </RowTemplate>
+                                <NoRecordsContent>
+                                    <div class="pa-4 text-center">
+                                        <MudText Typo="Typo.body2" Class="mud-text-secondary">Belum ada transaksi penjualan.</MudText>
+                                    </div>
+                                </NoRecordsContent>
+                            </MudTable>
+                        </div>
+                        <div class="mt-2 pt-2 border-t text-right">
+                            <MudLink Href="sales" Typo="Typo.caption" Color="Color.Primary" Underline="Underline.Always">Buka Daftar Penjualan</MudLink>
+                        </div>
+                    </MudPaper>
+                </MudItem>
+            </MudGrid>
+        }
     </Authorized>
 </AuthorizeView>
+
+@code {
+    private DashboardSummaryDto? _summary;
+    private DashboardTrendPeriod _selectedPeriod = DashboardTrendPeriod.Last7Days;
+    private bool _loading = true;
+    private string? _errorMessage;
+
+    private bool _canManage;
+    private bool _canApprove;
+    private bool _canInputJournal;
+    private bool _canViewReports;
+
+    private List<ChartSeries> _chartSeries = new();
+    private string[] _xAxisLabels = Array.Empty<string>();
+    private readonly ChartOptions _chartOptions = new()
+    {
+        ChartPalette = new[] { SiaColors.GreenStrong, SiaColors.Black },
+        YAxisFormat = "N0"
+    };
+
+    protected override async Task OnInitializedAsync()
+    {
+        var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+        var user = authState.User;
+        _canManage = (await AuthorizationService.AuthorizeAsync(user, Policies.ManageTransactions)).Succeeded;
+        _canApprove = (await AuthorizationService.AuthorizeAsync(user, Policies.ApprovePurchaseOrder)).Succeeded;
+        _canInputJournal = (await AuthorizationService.AuthorizeAsync(user, Policies.InputJournal)).Succeeded;
+        _canViewReports = (await AuthorizationService.AuthorizeAsync(user, Policies.ViewReports)).Succeeded;
+
+        await LoadDashboardAsync();
+    }
+
+    private async Task LoadDashboardAsync()
+    {
+        _loading = true;
+        _errorMessage = null;
+
+        var result = await DashboardService.GetSummaryAsync(_selectedPeriod);
+        if (result.IsSuccess)
+        {
+            _summary = result.Value;
+            UpdateChartData();
+        }
+        else
+        {
+            _errorMessage = result.Error ?? "Gagal memuat data ringkasan dashboard.";
+            Snackbar.Add(_errorMessage, Severity.Error);
+        }
+
+        _loading = false;
+    }
+
+    private async Task OnPeriodChangedAsync(DashboardTrendPeriod period)
+    {
+        if (_selectedPeriod == period && _summary != null) return;
+        _selectedPeriod = period;
+        await LoadDashboardAsync();
+    }
+
+    private void UpdateChartData()
+    {
+        if (_summary is null || _summary.TrendPoints.Count == 0)
+        {
+            _xAxisLabels = Array.Empty<string>();
+            _chartSeries = new List<ChartSeries>();
+            return;
+        }
+
+        _xAxisLabels = _summary.TrendPoints.Select(p => p.Label).ToArray();
+        _chartSeries = new List<ChartSeries>
+        {
+            new() { Name = "Penjualan Bersih", Data = _summary.TrendPoints.Select(p => (double)p.NetSales).ToArray() },
+            new() { Name = "Pembelian Diterima", Data = _summary.TrendPoints.Select(p => (double)p.NetPurchases).ToArray() }
+        };
+    }
+
+    private async Task RecordOutstandingPaymentAsync(OutstandingDto item)
+    {
+        if (item.ReferenceType == ReferenceType.Sale)
+        {
+            var fetchResult = await SaleService.GetByIdAsync(item.ReferenceId);
+            if (!fetchResult.IsSuccess || fetchResult.Value is null)
+            {
+                Snackbar.Add(fetchResult.Error ?? "Gagal memuat data penjualan.", Severity.Error);
+                return;
+            }
+
+            var parameters = new DialogParameters<PaymentFormDialog> { { x => x.Sale, fetchResult.Value } };
+            var options = new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true, CloseOnEscapeKey = true };
+            var dialog = await DialogService.ShowAsync<PaymentFormDialog>("Catat Pembayaran Penjualan", parameters, options);
+            var dialogResult = await dialog.Result;
+            if (dialogResult is { Canceled: false })
+            {
+                Snackbar.Add("Pembayaran piutang berhasil dicatat.", Severity.Success);
+                await LoadDashboardAsync();
+            }
+        }
+        else if (item.ReferenceType == ReferenceType.PurchaseOrder)
+        {
+            var fetchResult = await PurchaseOrderService.GetByIdAsync(item.ReferenceId);
+            if (!fetchResult.IsSuccess || fetchResult.Value is null)
+            {
+                Snackbar.Add(fetchResult.Error ?? "Gagal memuat data purchase order.", Severity.Error);
+                return;
+            }
+
+            var parameters = new DialogParameters<PurchaseOrderPaymentDialog> { { x => x.PurchaseOrder, fetchResult.Value } };
+            var options = new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true, CloseOnEscapeKey = true };
+            var dialog = await DialogService.ShowAsync<PurchaseOrderPaymentDialog>("Catat Pembayaran PO", parameters, options);
+            var dialogResult = await dialog.Result;
+            if (dialogResult is { Canceled: false })
+            {
+                Snackbar.Add("Pembayaran utang berhasil dicatat.", Severity.Success);
+                await LoadDashboardAsync();
+            }
+        }
+    }
+
+    private async Task RecordSalePaymentAsync(SaleDto sale)
+    {
+        var parameters = new DialogParameters<PaymentFormDialog> { { x => x.Sale, sale } };
+        var options = new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true, CloseOnEscapeKey = true };
+        var dialog = await DialogService.ShowAsync<PaymentFormDialog>("Catat Pembayaran", parameters, options);
+        var dialogResult = await dialog.Result;
+        if (dialogResult is { Canceled: false })
+        {
+            Snackbar.Add("Pembayaran berhasil dicatat.", Severity.Success);
+            await LoadDashboardAsync();
+        }
+    }
+
+    private async Task ApprovePoAsync(PurchaseOrderDto po)
+    {
+        var confirm = await DialogService.ShowMessageBox(
+            "Konfirmasi Persetujuan",
+            $"Setujui Purchase Order {po.PONumber}? Setelah disetujui, barang dapat diterima saat tiba di gudang.",
+            yesText: "Setujui", cancelText: "Batal");
+
+        if (confirm == true)
+        {
+            var result = await PurchaseOrderService.ApproveAsync(po.Id);
+            if (result.IsSuccess)
+            {
+                Snackbar.Add($"Purchase Order {po.PONumber} berhasil disetujui.", Severity.Success);
+                await LoadDashboardAsync();
+            }
+            else
+            {
+                Snackbar.Add(result.Error!, Severity.Error);
+            }
+        }
+    }
+
+    private async Task ReceivePoAsync(PurchaseOrderDto po)
+    {
+        var confirm = await DialogService.ShowMessageBox(
+            "Konfirmasi Penerimaan Barang",
+            $"Konfirmasi penerimaan barang untuk {po.PONumber}? Stok fisik produk akan bertambah otomatis dan mutasi tercatat pada kartu stok.",
+            yesText: "Terima Barang", cancelText: "Batal");
+
+        if (confirm == true)
+        {
+            var result = await PurchaseOrderService.ReceiveAsync(po.Id);
+            if (result.IsSuccess)
+            {
+                Snackbar.Add($"Barang untuk {po.PONumber} berhasil diterima. Stok telah diperbarui.", Severity.Success);
+                await LoadDashboardAsync();
+            }
+            else
+            {
+                Snackbar.Add(result.Error!, Severity.Error);
+            }
+        }
+    }
+}

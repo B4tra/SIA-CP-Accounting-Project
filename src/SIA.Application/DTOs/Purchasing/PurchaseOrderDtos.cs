@@ -72,7 +72,7 @@ public class CreatePurchaseOrderDetailDto
     [Range(1, int.MaxValue, ErrorMessage = "Jumlah minimal 1.")]
     public int Quantity { get; set; } = 1;
 
-    [Range(typeof(decimal), "0", "79228162514264337593543950335", ErrorMessage = "Harga satuan tidak boleh negatif.")]
+    [Range(typeof(decimal), "0", "79228162514264337593543950335", ParseLimitsInInvariantCulture = true, ErrorMessage = "Harga satuan tidak boleh negatif.")]
     public decimal UnitPrice { get; set; }
 }
 

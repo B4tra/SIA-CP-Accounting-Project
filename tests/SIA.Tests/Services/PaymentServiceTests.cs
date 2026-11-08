@@ -299,4 +299,45 @@ public class PaymentServiceTests : IDisposable
 
         Assert.True(result.IsFailure);
     }
+
+    [Fact]
+    public async Task Create_DenganCultureIndonesia_ValidasiRangeDecimalBerhasil()
+    {
+        var poId = await SeedPurchaseOrderAsync(PurchaseOrderStatus.Approved, total: 250_000m);
+        var previousCulture = System.Globalization.CultureInfo.CurrentCulture;
+        var previousUiCulture = System.Globalization.CultureInfo.CurrentUICulture;
+
+        try
+        {
+            var idCulture = System.Globalization.CultureInfo.GetCultureInfo("id-ID");
+            System.Globalization.CultureInfo.CurrentCulture = idCulture;
+            System.Globalization.CultureInfo.CurrentUICulture = idCulture;
+
+            var invalidResult = await CreateService(Roles.Admin).CreateAsync(new CreatePaymentDto
+            {
+                ReferenceType = ReferenceType.PurchaseOrder,
+                ReferenceId = poId,
+                PaymentDate = new DateTime(2026, 4, 10),
+                PaymentMethod = PaymentMethod.Transfer,
+                Amount = 0m,
+            });
+            Assert.True(invalidResult.IsFailure);
+
+            var validResult = await CreateService(Roles.Admin).CreateAsync(new CreatePaymentDto
+            {
+                ReferenceType = ReferenceType.PurchaseOrder,
+                ReferenceId = poId,
+                PaymentDate = new DateTime(2026, 4, 10),
+                PaymentMethod = PaymentMethod.Transfer,
+                Amount = 250_000m,
+            });
+            Assert.True(validResult.IsSuccess, validResult.Error);
+            Assert.Equal(250_000m, validResult.Value!.Amount);
+        }
+        finally
+        {
+            System.Globalization.CultureInfo.CurrentCulture = previousCulture;
+            System.Globalization.CultureInfo.CurrentUICulture = previousUiCulture;
+        }
+    }
 }

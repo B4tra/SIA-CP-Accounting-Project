@@ -47,10 +47,10 @@ public class CreateProductDto
     [StringLength(20, ErrorMessage = "Kapasitas maksimal 20 karakter.")]
     public string? Capacity { get; set; }
 
-    [Range(typeof(decimal), "0", "79228162514264337593543950335", ErrorMessage = "Harga jual tidak boleh negatif.")]
+    [Range(typeof(decimal), "0", "79228162514264337593543950335", ParseLimitsInInvariantCulture = true, ErrorMessage = "Harga jual tidak boleh negatif.")]
     public decimal SellingPrice { get; set; }
 
-    [Range(typeof(decimal), "0", "79228162514264337593543950335", ErrorMessage = "Harga beli tidak boleh negatif.")]
+    [Range(typeof(decimal), "0", "79228162514264337593543950335", ParseLimitsInInvariantCulture = true, ErrorMessage = "Harga beli tidak boleh negatif.")]
     public decimal PurchasePrice { get; set; }
 
     [Range(0, int.MaxValue, ErrorMessage = "Batas minimum stok tidak boleh negatif.")]

@@ -53,7 +53,7 @@ public class CreateSaleDto
     public PaymentMethod PaymentMethod { get; set; }
 
     /// <summary>Uang yang dibayar saat transaksi.</summary>
-    [Range(typeof(decimal), "0", "79228162514264337593543950335", ErrorMessage = "Jumlah dibayar tidak boleh negatif.")]
+    [Range(typeof(decimal), "0", "79228162514264337593543950335", ParseLimitsInInvariantCulture = true, ErrorMessage = "Jumlah dibayar tidak boleh negatif.")]
     public decimal PaidAmount { get; set; }
 
     [StringLength(500, ErrorMessage = "Catatan maksimal 500 karakter.")]
@@ -71,7 +71,7 @@ public class CreateSaleDetailDto
     [Range(1, int.MaxValue, ErrorMessage = "Jumlah minimal 1.")]
     public int Quantity { get; set; } = 1;
 
-    [Range(typeof(decimal), "0", "79228162514264337593543950335", ErrorMessage = "Harga satuan tidak boleh negatif.")]
+    [Range(typeof(decimal), "0", "79228162514264337593543950335", ParseLimitsInInvariantCulture = true, ErrorMessage = "Harga satuan tidak boleh negatif.")]
     public decimal UnitPrice { get; set; }
 }
 

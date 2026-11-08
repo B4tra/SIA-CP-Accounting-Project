@@ -47,10 +47,10 @@ public class CreateJournalEntryLineDto
     [Range(1, int.MaxValue, ErrorMessage = "Akun wajib dipilih.")]
     public int AccountId { get; set; }
 
-    [Range(typeof(decimal), "0", "79228162514264337593543950335", ErrorMessage = "Debit tidak boleh negatif.")]
+    [Range(typeof(decimal), "0", "79228162514264337593543950335", ParseLimitsInInvariantCulture = true, ErrorMessage = "Debit tidak boleh negatif.")]
     public decimal Debit { get; set; }
 
-    [Range(typeof(decimal), "0", "79228162514264337593543950335", ErrorMessage = "Kredit tidak boleh negatif.")]
+    [Range(typeof(decimal), "0", "79228162514264337593543950335", ParseLimitsInInvariantCulture = true, ErrorMessage = "Kredit tidak boleh negatif.")]
     public decimal Credit { get; set; }
 }
 

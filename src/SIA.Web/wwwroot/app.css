@@ -57,30 +57,47 @@ h1:focus {
     opacity: .7;
 }
 
+/* Item aktif: teks tetap putih tebal dengan sorot latar halus dan ikon tetap hijau */
 .sia-drawer .mud-nav-link {
     border-radius: var(--mud-default-borderradius);
     margin: 2px 12px;
     width: auto;
+    color: var(--mud-palette-drawer-text);
 }
 
-.sia-drawer .mud-nav-link:hover:not(.active) {
+.sia-drawer .mud-navmenu .mud-nav-link:hover:not(.active):not(.mud-nav-link-disabled),
+.sia-drawer .mud-navmenu .mud-nav-link:focus-visible:not(.active):not(.mud-nav-link-disabled),
+.sia-drawer .mud-navmenu .mud-nav-link:active:not(.active):not(.mud-nav-link-disabled) {
+    color: var(--mud-palette-drawer-text);
     background-color: color-mix(in srgb, var(--mud-palette-drawer-text) 10%, transparent);
 }
 
-/* Item aktif: latar hijau (sesuai Figma) dengan teks hitam */
+.sia-drawer .mud-navmenu.mud-navmenu-default .mud-nav-link.active:not(.mud-nav-link-disabled),
+.sia-drawer .mud-navmenu.mud-navmenu-default .mud-nav-link.active:not(.mud-nav-link-disabled):hover:not(.mud-nav-link-disabled),
+.sia-drawer .mud-navmenu.mud-navmenu-default .mud-nav-link.active:not(.mud-nav-link-disabled):focus-visible:not(.mud-nav-link-disabled),
+.sia-drawer .mud-navmenu.mud-navmenu-default .mud-nav-link.active:not(.mud-nav-link-disabled):active:not(.mud-nav-link-disabled),
 .sia-drawer .mud-nav-link.active:not(.mud-nav-link-disabled) {
-    background-color: var(--mud-palette-background);
-    color: var(--mud-palette-text-primary);
+    background-color: color-mix(in srgb, var(--mud-palette-drawer-text) 14%, transparent);
+    color: var(--mud-palette-drawer-text);
     font-weight: 600;
 }
 
+.sia-drawer .mud-navmenu .mud-nav-link .mud-nav-link-icon,
+.sia-drawer .mud-navmenu.mud-navmenu-default .mud-nav-link.active:not(.mud-nav-link-disabled) .mud-nav-link-icon,
 .sia-drawer .mud-nav-link.active:not(.mud-nav-link-disabled) .mud-nav-link-icon {
-    color: var(--mud-palette-text-primary);
+    color: var(--mud-palette-drawer-icon);
 }
 
+.sia-drawer .mud-navmenu .mud-nav-link-expand-icon,
+.sia-drawer .mud-navmenu.mud-navmenu-default .mud-nav-link-expand-icon.mud-transform {
+    color: var(--mud-palette-drawer-icon);
+    fill: var(--mud-palette-drawer-icon);
+}
+
+.sia-drawer .mud-nav-group .mud-nav-link-text,
 .sia-drawer .mud-navgroup .mud-nav-link-text,
 .sia-drawer .mud-nav-link-text {
-    color: inherit;
+    color: var(--mud-palette-drawer-text);
 }
 
 /* ===== Konten ===== */

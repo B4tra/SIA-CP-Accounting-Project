@@ -65,9 +65,10 @@ public static class DependencyInjection
         services.AddScoped<ISaleReturnService, SaleReturnService>();
         services.AddScoped<IPurchaseReturnService, PurchaseReturnService>();
 
-        // Service aplikasi (Jurnal umum & laporan keuangan)
+        // Service aplikasi (Jurnal umum, laporan keuangan & dashboard)
         services.AddScoped<IJournalService, JournalService>();
         services.AddScoped<IFinancialReportService, FinancialReportService>();
+        services.AddScoped<IDashboardService, DashboardService>();
 
         // Service aplikasi (Tahap Admin)
         services.AddScoped<IAuditService, AuditService>();
