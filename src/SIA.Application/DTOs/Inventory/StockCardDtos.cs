@@ -7,6 +7,8 @@ public class StockCardDto
     public int Id { get; set; }
     public int ProductId { get; set; }
     public string ProductName { get; set; } = string.Empty;
+    public string? SKU { get; set; }
+    public string? Brand { get; set; }
     public DateTime MovementDate { get; set; }
     public StockMovementType MovementType { get; set; }
     public int Quantity { get; set; }
@@ -15,6 +17,15 @@ public class StockCardDto
 
     /// <summary>Nomor transaksi sumber, mis. "INV-2026-0001".</summary>
     public string? Reference { get; set; }
+}
+
+public class StockCardFilterDto
+{
+    public int? ProductId { get; set; }
+    public DateTime? DateFrom { get; set; }
+    public DateTime? DateTo { get; set; }
+    public StockMovementType? MovementType { get; set; }
+    public string? Search { get; set; }
 }
 
 /// <summary>Produk yang stoknya sudah mencapai/di bawah batas minimum (ReorderPoint).</summary>

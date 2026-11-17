@@ -39,10 +39,7 @@
             <MudTh Style="text-align:right">Harga Beli</MudTh>
             <MudTh Style="text-align:right">Harga Jual</MudTh>
             <MudTh Style="text-align:right">Stok</MudTh>
-            @if (_canManage)
-            {
-                <MudTh Style="text-align:right">Aksi</MudTh>
-            }
+            <MudTh Style="text-align:right">Aksi</MudTh>
         </HeaderContent>
         <RowTemplate>
             <MudTd DataLabel="SKU">@(context.SKU ?? "-")</MudTd>
@@ -68,17 +65,21 @@
                     @context.Stock
                 }
             </MudTd>
-            @if (_canManage)
-            {
-                <MudTd DataLabel="Aksi" Style="text-align:right; white-space:nowrap">
+            <MudTd DataLabel="Aksi" Style="text-align:right; white-space:nowrap">
+                <MudTooltip Text="Lihat Kartu Stok">
+                    <MudIconButton Icon="@Icons.Material.Outlined.History" Size="Size.Small"
+                                   Href="@($"stock-cards?productId={context.Id}")" aria-label="Lihat kartu stok" />
+                </MudTooltip>
+                @if (_canManage)
+                {
                     <MudTooltip Text="Ubah">
                         <MudIconButton Icon="@Icons.Material.Outlined.Edit" Size="Size.Small" OnClick="() => EditAsync(context)" aria-label="Ubah produk" />
                     </MudTooltip>
                     <MudTooltip Text="Hapus">
                         <MudIconButton Icon="@Icons.Material.Outlined.Delete" Size="Size.Small" Color="Color.Error" OnClick="() => DeleteAsync(context)" aria-label="Hapus produk" />
                     </MudTooltip>
-                </MudTd>
-            }
+                }
+            </MudTd>
         </RowTemplate>
         <NoRecordsContent>
             <MudText Typo="Typo.body2">Belum ada data produk.</MudText>

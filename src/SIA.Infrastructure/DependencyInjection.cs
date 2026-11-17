@@ -53,6 +53,7 @@ public static class DependencyInjection
         services.AddScoped<ITransactionNumberService, TransactionNumberService>();
         services.AddScoped<IAccountService, AccountService>();
         services.AddScoped<IProductService, ProductService>();
+        services.AddScoped<IStockCardService, StockCardService>();
         services.AddScoped<ICustomerService, CustomerService>();
         services.AddScoped<ISupplierService, SupplierService>();
 

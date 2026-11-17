@@ -81,5 +81,14 @@ public static class Display
         ReferenceType.PurchaseOrder => "Purchase Order (Utang)",
         _ => referenceType.ToString(),
     };
+
+    public static string Label(StockMovementType movementType) => movementType switch
+    {
+        StockMovementType.In => "Masuk (Pembelian)",
+        StockMovementType.Out => "Keluar (Penjualan)",
+        StockMovementType.ReturnIn => "Masuk (Retur Jual)",
+        StockMovementType.ReturnOut => "Keluar (Retur Beli)",
+        _ => movementType.ToString(),
+    };
 }
 

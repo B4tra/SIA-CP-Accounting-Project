@@ -6,6 +6,10 @@ namespace SIA.Application.Services.Inventory;
 /// <summary>Kartu stok dan peringatan stok minimum. Baca: semua role.</summary>
 public interface IStockCardService
 {
+    Task<Result<IReadOnlyList<StockCardDto>>> GetAllAsync(
+        StockCardFilterDto? filter = null,
+        CancellationToken cancellationToken = default);
+
     Task<Result<IReadOnlyList<StockCardDto>>> GetByProductAsync(
         int productId,
         DateTime? dateFrom = null,

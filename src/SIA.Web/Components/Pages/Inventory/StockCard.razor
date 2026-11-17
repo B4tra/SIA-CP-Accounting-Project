@@ -1,0 +1,579 @@
+@page "/stock-cards"
+@attribute [Authorize(Policy = Policies.ViewAllData)]
+@using SIA.Application.DTOs.Inventory
+@using SIA.Application.Services.Inventory
+@inject IStockCardService StockCardService
+@inject IProductService ProductService
+@inject ISnackbar Snackbar
+@inject IJSRuntime JS
+@inject NavigationManager Navigation
+@inject IAuthorizationService AuthorizationService
+@inject AuthenticationStateProvider AuthStateProvider
+
+<PageTitle>Kartu Stok - SIA</PageTitle>
+
+<!-- Header & Tombol Aksi -->
+<div class="d-flex flex-wrap align-center justify-space-between gap-4 mb-6 no-print">
+    <div>
+        <h1 class="sia-page-title">Kartu Stok</h1>
+        <MudText Typo="Typo.body2" Class="mud-text-secondary">
+            Riwayat keluar-masuk stok aki/baterai dari pembelian, penjualan, dan retur.
+        </MudText>
+    </div>
+    <div class="d-flex flex-wrap align-center gap-2">
+        <MudButton Variant="Variant.Outlined" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Print"
+                   OnClick="PrintAsync" Disabled="_loading">Cetak Kartu Stok</MudButton>
+        <MudButton Variant="Variant.Outlined" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Refresh"
+                   OnClick="ReloadAllAsync" Disabled="_loading">Muat Ulang</MudButton>
+    </div>
+</div>
+
+<!-- Peringatan Jika Query productId Tidak Ditemukan -->
+@if (IsUnknownProductFilter)
+{
+    <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined" Class="mb-4 no-print">
+        Produk tidak ditemukan. Produk dengan ID @_appliedFilter.ProductId mungkin telah dihapus atau tidak tersedia.
+    </MudAlert>
+}
+
+<!-- 4 Kartu Ringkasan KPI -->
+<MudGrid Spacing="3" Class="mb-6 no-print">
+    <!-- Kartu 1: Total Unit Masuk -->
+    <MudItem xs="12" sm="6" md="3">
+        <MudPaper Outlined="true" Class="sia-card pa-4 h-100 d-flex flex-column justify-space-between">
+            <div>
+                <div class="d-flex align-center justify-space-between mb-2">
+                    <MudText Typo="Typo.caption" Class="mud-text-secondary text-uppercase font-weight-bold">Total Unit Masuk</MudText>
+                    <MudIcon Icon="@Icons.Material.Outlined.CallReceived" Color="Color.Success" Size="Size.Small" />
+                </div>
+                <MudText Typo="Typo.h5" Class="font-weight-bold" Color="Color.Success">+@TotalUnitIn unit</MudText>
+            </div>
+            <div class="d-flex align-center justify-space-between mt-3 pt-2 border-t">
+                <MudText Typo="Typo.caption" Class="mud-text-secondary">@InTransactionCount transaksi masuk</MudText>
+                <MudText Typo="Typo.caption" Class="mud-text-secondary">Beli &amp; Retur Jual</MudText>
+            </div>
+        </MudPaper>
+    </MudItem>
+
+    <!-- Kartu 2: Total Unit Keluar -->
+    <MudItem xs="12" sm="6" md="3">
+        <MudPaper Outlined="true" Class="sia-card pa-4 h-100 d-flex flex-column justify-space-between">
+            <div>
+                <div class="d-flex align-center justify-space-between mb-2">
+                    <MudText Typo="Typo.caption" Class="mud-text-secondary text-uppercase font-weight-bold">Total Unit Keluar</MudText>
+                    <MudIcon Icon="@Icons.Material.Outlined.CallMade" Color="Color.Error" Size="Size.Small" />
+                </div>
+                <MudText Typo="Typo.h5" Class="font-weight-bold" Color="Color.Error">-@TotalUnitOut unit</MudText>
+            </div>
+            <div class="d-flex align-center justify-space-between mt-3 pt-2 border-t">
+                <MudText Typo="Typo.caption" Class="mud-text-secondary">@OutTransactionCount transaksi keluar</MudText>
+                <MudText Typo="Typo.caption" Class="mud-text-secondary">Jual &amp; Retur Beli</MudText>
+            </div>
+        </MudPaper>
+    </MudItem>
+
+    <!-- Kartu 3: Status Produk / Stok Saat Ini -->
+    <MudItem xs="12" sm="6" md="3">
+        <MudPaper Outlined="true" Class="sia-card pa-4 h-100 d-flex flex-column justify-space-between">
+            @if (SelectedProduct is { } selected)
+            {
+                <div>
+                    <div class="d-flex align-center justify-space-between mb-2">
+                        <MudText Typo="Typo.caption" Class="mud-text-secondary text-uppercase font-weight-bold">Stok Saat Ini</MudText>
+                        <MudIcon Icon="@Icons.Material.Outlined.Inventory2" Color="Color.Primary" Size="Size.Small" />
+                    </div>
+                    <MudText Typo="Typo.h5" Class="font-weight-bold">@selected.Stock unit</MudText>
+                </div>
+                <div class="d-flex align-center justify-space-between mt-3 pt-2 border-t">
+                    <MudText Typo="Typo.caption" Class="mud-text-secondary">Batas min: @selected.ReorderPoint unit</MudText>
+                    @if (selected.Stock <= 0)
+                    {
+                        <MudChip T="string" Size="Size.Small" Color="Color.Error" Variant="Variant.Filled" Class="ma-0 px-2 font-weight-bold">Habis</MudChip>
+                    }
+                    else if (selected.Stock <= selected.ReorderPoint)
+                    {
+                        <MudChip T="string" Size="Size.Small" Color="Color.Warning" Variant="Variant.Filled" Class="ma-0 px-2 font-weight-bold">Menipis</MudChip>
+                    }
+                    else
+                    {
+                        <MudChip T="string" Size="Size.Small" Color="Color.Success" Variant="Variant.Outlined" Class="ma-0 px-2">Aman</MudChip>
+                    }
+                </div>
+            }
+            else if (IsUnknownProductFilter)
+            {
+                <div>
+                    <div class="d-flex align-center justify-space-between mb-2">
+                        <MudText Typo="Typo.caption" Class="mud-text-secondary text-uppercase font-weight-bold">Status Produk</MudText>
+                        <MudIcon Icon="@Icons.Material.Outlined.Inventory2" Color="Color.Warning" Size="Size.Small" />
+                    </div>
+                    <MudText Typo="Typo.h5" Class="font-weight-bold" Color="Color.Warning">Tidak Ditemukan</MudText>
+                </div>
+                <div class="d-flex align-center justify-space-between mt-3 pt-2 border-t">
+                    <MudText Typo="Typo.caption" Class="mud-text-secondary">ID: @_appliedFilter.ProductId</MudText>
+                    <MudChip T="string" Size="Size.Small" Color="Color.Warning" Variant="Variant.Filled" Class="ma-0 px-2 font-weight-bold">Produk Tidak Ditemukan</MudChip>
+                </div>
+            }
+            else
+            {
+                <div>
+                    <div class="d-flex align-center justify-space-between mb-2">
+                        <MudText Typo="Typo.caption" Class="mud-text-secondary text-uppercase font-weight-bold">Status Produk &amp; Mutasi</MudText>
+                        <MudIcon Icon="@Icons.Material.Outlined.Inventory2" Color="Color.Primary" Size="Size.Small" />
+                    </div>
+                    <MudText Typo="Typo.h5" Class="font-weight-bold">@_movements.Count transaksi</MudText>
+                </div>
+                <div class="d-flex align-center justify-space-between mt-3 pt-2 border-t">
+                    <MudText Typo="Typo.caption" Class="mud-text-secondary">@_products.Count produk aki aktif</MudText>
+                    <MudChip T="string" Size="Size.Small" Color="Color.Primary" Variant="Variant.Outlined" Class="ma-0 px-2">Semua Produk</MudChip>
+                </div>
+            }
+        </MudPaper>
+    </MudItem>
+
+    <!-- Kartu 4: Peringatan Stok Minimum -->
+    <MudItem xs="12" sm="6" md="3">
+        <MudPaper Outlined="true" Class="sia-card pa-4 h-100 d-flex flex-column justify-space-between">
+            <div>
+                <div class="d-flex align-center justify-space-between mb-2">
+                    <MudText Typo="Typo.caption" Class="mud-text-secondary text-uppercase font-weight-bold">Peringatan Stok Minimum</MudText>
+                    <MudIcon Icon="@Icons.Material.Outlined.BatteryAlert" Color="@(_reorderAlerts.Count > 0 ? Color.Warning : Color.Success)" Size="Size.Small" />
+                </div>
+                <MudText Typo="Typo.h5" Class="font-weight-bold" Color="@(_reorderAlerts.Count > 0 ? Color.Warning : Color.Default)">
+                    @_reorderAlerts.Count SKU
+                </MudText>
+            </div>
+            <div class="d-flex align-center justify-space-between mt-3 pt-2 border-t">
+                <MudText Typo="Typo.caption" Class="mud-text-secondary">Stok &lt;= batas minimum</MudText>
+                @if (OutOfStockAlertCount > 0)
+                {
+                    <MudChip T="string" Size="Size.Small" Color="Color.Error" Variant="Variant.Filled" Class="ma-0 px-2 font-weight-bold">
+                        @OutOfStockAlertCount Habis (0)
+                    </MudChip>
+                }
+                else if (_reorderAlerts.Count > 0)
+                {
+                    <MudChip T="string" Size="Size.Small" Color="Color.Warning" Variant="Variant.Outlined" Class="ma-0 px-2">Perlu Restock</MudChip>
+                }
+                else
+                {
+                    <MudChip T="string" Size="Size.Small" Color="Color.Success" Variant="Variant.Outlined" Class="ma-0 px-2">Stok Aman</MudChip>
+                }
+            </div>
+        </MudPaper>
+    </MudItem>
+</MudGrid>
+
+<!-- Panel Peringatan Stok Minimum -->
+<MudPaper Outlined="true" Class="sia-card pa-4 mb-4 no-print">
+    <div class="d-flex flex-wrap align-center justify-space-between gap-2 mb-3">
+        <div>
+            <MudText Typo="Typo.subtitle1" Class="font-weight-bold">Peringatan Stok Minimum (Reorder Alert)</MudText>
+            <MudText Typo="Typo.caption" Class="mud-text-secondary">
+                Daftar produk aki dengan stok mencapai atau di bawah batas minimum.
+            </MudText>
+        </div>
+        @if (_canManage && _reorderAlerts.Count > 0)
+        {
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" Size="Size.Small"
+                       StartIcon="@Icons.Material.Outlined.AddShoppingCart" Href="purchase-orders/new">Buat PO</MudButton>
+        }
+    </div>
+
+    <MudTable Items="_reorderAlerts" Dense="true" Hover="true" Breakpoint="Breakpoint.Sm" Class="sia-table" Elevation="0">
+        <HeaderContent>
+            <MudTh>Produk Aki</MudTh>
+            <MudTh Style="text-align:center">Stok Saat Ini</MudTh>
+            <MudTh Style="text-align:center">Batas Minimum</MudTh>
+            <MudTh Style="text-align:right">Aksi</MudTh>
+        </HeaderContent>
+        <RowTemplate Context="alert">
+            <MudTd DataLabel="Produk Aki">
+                <MudText Typo="Typo.body2" Class="font-weight-bold">@alert.ProductName</MudText>
+                <MudText Typo="Typo.caption" Class="mud-text-secondary">@FormatProductMeta(alert.Brand, alert.SKU)</MudText>
+            </MudTd>
+            <MudTd DataLabel="Stok Saat Ini" Style="text-align:center">
+                @if (alert.Stock <= 0)
+                {
+                    <MudChip T="string" Size="Size.Small" Color="Color.Error" Variant="Variant.Filled" Class="font-weight-bold">
+                        Habis (@alert.Stock)
+                    </MudChip>
+                }
+                else
+                {
+                    <MudChip T="string" Size="Size.Small" Color="Color.Warning" Variant="Variant.Filled" Class="font-weight-bold">
+                        Menipis (@alert.Stock)
+                    </MudChip>
+                }
+            </MudTd>
+            <MudTd DataLabel="Batas Minimum" Style="text-align:center">@alert.ReorderPoint</MudTd>
+            <MudTd DataLabel="Aksi" Style="text-align:right; white-space:nowrap">
+                <MudButton Variant="Variant.Outlined" Color="Color.Primary" Size="Size.Small"
+                           StartIcon="@Icons.Material.Outlined.History"
+                           OnClick="() => SelectProductAsync(alert.ProductId)" Disabled="_loading">Lihat Mutasi</MudButton>
+                @if (_canManage)
+                {
+                    <MudButton Variant="Variant.Filled" Color="Color.Primary" Size="Size.Small" Class="ml-2"
+                               StartIcon="@Icons.Material.Outlined.AddShoppingCart"
+                               Href="purchase-orders/new">Buat PO</MudButton>
+                }
+            </MudTd>
+        </RowTemplate>
+        <NoRecordsContent>
+            <MudText Typo="Typo.body2" Class="mud-text-secondary">Semua stok produk berada di atas batas minimum.</MudText>
+        </NoRecordsContent>
+    </MudTable>
+</MudPaper>
+
+<!-- Bar Filter Kartu Stok -->
+<MudPaper Outlined="true" Class="sia-card pa-4 mb-4 no-print">
+    <MudGrid Spacing="2" Class="align-center">
+        <MudItem xs="12" md="3">
+            <MudSelect T="int?" Label="Produk" @bind-Value="_filter.ProductId"
+                       Variant="Variant.Outlined" Margin="Margin.Dense" Clearable="true">
+                <MudSelectItem T="int?" Value="@((int?)null)">Semua Produk</MudSelectItem>
+                @foreach (var product in _products)
+                {
+                    <MudSelectItem T="int?" Value="@((int?)product.Id)">@FormatProductOption(product)</MudSelectItem>
+                }
+            </MudSelect>
+        </MudItem>
+        <MudItem xs="12" sm="6" md="2">
+            <MudSelect T="StockMovementType?" Label="Jenis Mutasi" @bind-Value="_filter.MovementType"
+                       Variant="Variant.Outlined" Margin="Margin.Dense" Clearable="true">
+                <MudSelectItem T="StockMovementType?" Value="@((StockMovementType?)null)">Semua Jenis</MudSelectItem>
+                @foreach (var type in Enum.GetValues<StockMovementType>())
+                {
+                    <MudSelectItem T="StockMovementType?" Value="@((StockMovementType?)type)">@Display.Label(type)</MudSelectItem>
+                }
+            </MudSelect>
+        </MudItem>
+        <MudItem xs="12" sm="6" md="2">
+            <MudDatePicker Label="Dari Tanggal" @bind-Date="_filter.DateFrom" DateFormat="dd/MM/yyyy"
+                           Variant="Variant.Outlined" Margin="Margin.Dense" Clearable="true" />
+        </MudItem>
+        <MudItem xs="12" sm="6" md="2">
+            <MudDatePicker Label="Sampai Tanggal" @bind-Date="_filter.DateTo" DateFormat="dd/MM/yyyy"
+                           Variant="Variant.Outlined" Margin="Margin.Dense" Clearable="true" />
+        </MudItem>
+        <MudItem xs="12" sm="6" md="3">
+            <MudTextField T="string" Label="No. Referensi / Nama / SKU" @bind-Value="_filter.Search"
+                          Placeholder="Cari INV-, PO-, nama, SKU..."
+                          Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Search"
+                          Variant="Variant.Outlined" Margin="Margin.Dense" Clearable="true" />
+        </MudItem>
+    </MudGrid>
+    <div class="d-flex flex-wrap justify-end gap-2 mt-3">
+        <MudButton Variant="Variant.Outlined" Color="Color.Primary" StartIcon="@Icons.Material.Outlined.RestartAlt"
+                   OnClick="ResetFilterAsync" Disabled="_loading">Reset</MudButton>
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.FilterList"
+                   OnClick="ApplyFilterAsync" Disabled="_loading">Terapkan Filter</MudButton>
+    </div>
+</MudPaper>
+
+<!-- Kontainer Cetak & Tabel Riwayat Mutasi Kartu Stok -->
+<MudPaper Outlined="true" Class="sia-card pa-4 print-container">
+    <div class="d-flex flex-wrap justify-space-between align-start gap-2 mb-3">
+        <div>
+            <MudText Typo="Typo.subtitle1" Class="font-weight-bold">TOKO AKI / BATERAI KENDARAAN — KARTU STOK</MudText>
+            <MudText Typo="Typo.body2" Class="mud-text-secondary">
+                Produk: <strong>@AppliedProductLabel</strong>
+                | Periode: <strong>@PeriodeLabel</strong>
+                @if (_appliedFilter.MovementType is { } mt)
+                {
+                    <span> | Jenis: <strong>@Display.Label(mt)</strong></span>
+                }
+            </MudText>
+        </div>
+        <div style="text-align:right">
+            <MudText Typo="Typo.caption" Class="mud-text-secondary">Tanggal Cetak: @Display.Date(DateTime.Today)</MudText>
+            <MudText Typo="Typo.caption" Class="mud-text-secondary d-block">Menampilkan @_movements.Count mutasi</MudText>
+        </div>
+    </div>
+
+    <MudTable Items="_movements" Loading="_loading" Hover="true" Dense="true" Breakpoint="Breakpoint.Sm"
+              Class="sia-table" Elevation="0">
+        <HeaderContent>
+            <MudTh>Tanggal</MudTh>
+            <MudTh>Produk Aki</MudTh>
+            <MudTh>Jenis Mutasi</MudTh>
+            <MudTh>No. Referensi</MudTh>
+            <MudTh Style="text-align:right">Stok Awal</MudTh>
+            <MudTh Style="text-align:right">Mutasi</MudTh>
+            <MudTh Style="text-align:right">Stok Akhir</MudTh>
+        </HeaderContent>
+        <RowTemplate>
+            <MudTd DataLabel="Tanggal">@Display.Date(context.MovementDate)</MudTd>
+            <MudTd DataLabel="Produk Aki">
+                <div>@context.ProductName</div>
+                <MudText Typo="Typo.caption" Class="mud-text-secondary">@FormatProductMeta(context.Brand, context.SKU)</MudText>
+            </MudTd>
+            <MudTd DataLabel="Jenis Mutasi">
+                <MudChip T="string" Size="Size.Small" Color="@MovementColor(context.MovementType)" Variant="Variant.Filled">
+                    @Display.Label(context.MovementType)
+                </MudChip>
+            </MudTd>
+            <MudTd DataLabel="No. Referensi">
+                @if (string.IsNullOrWhiteSpace(context.Reference))
+                {
+                    <span>-</span>
+                }
+                else if (ReferenceHref(context.Reference) is { } href)
+                {
+                    <MudLink Href="@href" Typo="Typo.body2" Color="Color.Primary" Underline="Underline.Always">@context.Reference</MudLink>
+                }
+                else
+                {
+                    @context.Reference
+                }
+            </MudTd>
+            <MudTd DataLabel="Stok Awal" Style="text-align:right">@context.StockBefore</MudTd>
+            <MudTd DataLabel="Mutasi" Style="text-align:right">
+                <MudText Typo="Typo.body2" Color="@(IsIncoming(context.MovementType) ? Color.Success : Color.Error)" Class="font-weight-bold">
+                    @FormatMutation(context.MovementType, context.Quantity)
+                </MudText>
+            </MudTd>
+            <MudTd DataLabel="Stok Akhir" Style="text-align:right">
+                <strong>@context.StockAfter</strong>
+            </MudTd>
+        </RowTemplate>
+        <NoRecordsContent>
+            <MudText Typo="Typo.body2">Belum ada data mutasi kartu stok yang sesuai dengan filter.</MudText>
+        </NoRecordsContent>
+        <LoadingContent>
+            <MudText Typo="Typo.body2">Memuat data kartu stok...</MudText>
+        </LoadingContent>
+    </MudTable>
+</MudPaper>
+
+@code {
+    [SupplyParameterFromQuery(Name = "productId")]
+    public int? ProductId { get; set; }
+
+    private IReadOnlyList<StockCardDto> _movements = Array.Empty<StockCardDto>();
+    private IReadOnlyList<ReorderAlertDto> _reorderAlerts = Array.Empty<ReorderAlertDto>();
+    private IReadOnlyList<ProductDto> _products = Array.Empty<ProductDto>();
+    private StockCardFilterDto _filter = new();
+    private StockCardFilterDto _appliedFilter = new();
+    private bool _loading = true;
+    private bool _isFetching;
+    private bool _productsLoaded;
+    private bool _canManage;
+    private bool _initialized;
+    private int? _lastQueryProductId;
+
+    private int TotalUnitIn => _movements
+        .Where(m => IsIncoming(m.MovementType))
+        .Sum(m => m.Quantity);
+
+    private int InTransactionCount => _movements
+        .Count(m => IsIncoming(m.MovementType));
+
+    private int TotalUnitOut => _movements
+        .Where(m => !IsIncoming(m.MovementType))
+        .Sum(m => m.Quantity);
+
+    private int OutTransactionCount => _movements
+        .Count(m => !IsIncoming(m.MovementType));
+
+    private int OutOfStockAlertCount => _reorderAlerts.Count(a => a.Stock <= 0);
+
+    private ProductDto? SelectedProduct => _appliedFilter.ProductId is { } pid
+        ? _products.FirstOrDefault(p => p.Id == pid)
+        : null;
+
+    private bool IsUnknownProductFilter =>
+        _productsLoaded && _appliedFilter.ProductId is not null && SelectedProduct is null;
+
+    private string AppliedProductLabel => SelectedProduct is { } selected
+        ? FormatProductOption(selected)
+        : IsUnknownProductFilter
+            ? $"Produk tidak ditemukan (ID: {_appliedFilter.ProductId})"
+            : "Semua Produk";
+
+    private string PeriodeLabel => (_appliedFilter.DateFrom, _appliedFilter.DateTo) switch
+    {
+        (null, null) => "Semua Periode",
+        (not null, null) => $"Mulai {Display.Date(_appliedFilter.DateFrom)}",
+        (null, not null) => $"Sampai {Display.Date(_appliedFilter.DateTo)}",
+        (not null, not null) => $"{Display.Date(_appliedFilter.DateFrom)} s/d {Display.Date(_appliedFilter.DateTo)}",
+    };
+
+    protected override async Task OnInitializedAsync()
+    {
+        var state = await AuthStateProvider.GetAuthenticationStateAsync();
+        _canManage = (await AuthorizationService.AuthorizeAsync(state.User, Policies.ManageTransactions)).Succeeded;
+    }
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (!_initialized)
+        {
+            _initialized = true;
+            _lastQueryProductId = ProductId;
+            _filter.ProductId = ProductId;
+            _appliedFilter = CloneFilter(_filter);
+            await ReloadAllAsync();
+            return;
+        }
+
+        if (ProductId != _lastQueryProductId)
+        {
+            _lastQueryProductId = ProductId;
+            _filter.ProductId = ProductId;
+            await LoadMovementsAsync();
+        }
+    }
+
+    private async Task LoadReferenceDataAsync()
+    {
+        var productsResult = await ProductService.GetAllAsync();
+        if (productsResult.IsSuccess)
+        {
+            _products = productsResult.Value!;
+            _productsLoaded = true;
+        }
+        else
+        {
+            Snackbar.Add(productsResult.Error!, Severity.Error);
+        }
+
+        var alertsResult = await StockCardService.GetReorderAlertsAsync();
+        if (alertsResult.IsSuccess)
+            _reorderAlerts = alertsResult.Value!;
+        else
+            Snackbar.Add(alertsResult.Error!, Severity.Error);
+    }
+
+    private async Task FetchMovementsAsync()
+    {
+        var snapshot = CloneFilter(_filter);
+        var result = await StockCardService.GetAllAsync(snapshot);
+        if (result.IsSuccess)
+        {
+            _appliedFilter = snapshot;
+            _movements = result.Value!;
+        }
+        else
+        {
+            Snackbar.Add(result.Error!, Severity.Error);
+        }
+    }
+
+    private async Task LoadMovementsAsync()
+    {
+        if (_isFetching) return;
+
+        _isFetching = true;
+        _loading = true;
+        try
+        {
+            await FetchMovementsAsync();
+        }
+        finally
+        {
+            _loading = false;
+            _isFetching = false;
+        }
+    }
+
+    private async Task ReloadAllAsync()
+    {
+        if (_isFetching) return;
+
+        _isFetching = true;
+        _loading = true;
+        try
+        {
+            await LoadReferenceDataAsync();
+            await FetchMovementsAsync();
+        }
+        finally
+        {
+            _loading = false;
+            _isFetching = false;
+        }
+    }
+
+    private async Task ApplyFilterAsync()
+    {
+        if (_isFetching) return;
+        await LoadMovementsAsync();
+    }
+
+    private async Task ResetFilterAsync()
+    {
+        if (_isFetching) return;
+
+        _filter = new StockCardFilterDto();
+        if (ProductId is not null)
+        {
+            _lastQueryProductId = null;
+            Navigation.NavigateTo("stock-cards");
+        }
+        await LoadMovementsAsync();
+    }
+
+    private async Task SelectProductAsync(int productId)
+    {
+        if (_isFetching) return;
+
+        _filter = new StockCardFilterDto { ProductId = productId };
+        if (ProductId != productId)
+        {
+            _lastQueryProductId = productId;
+            Navigation.NavigateTo($"stock-cards?productId={productId}");
+        }
+        await LoadMovementsAsync();
+    }
+
+    private static StockCardFilterDto CloneFilter(StockCardFilterDto source) => new()
+    {
+        ProductId = source.ProductId,
+        DateFrom = source.DateFrom,
+        DateTo = source.DateTo,
+        MovementType = source.MovementType,
+        Search = source.Search,
+    };
+
+    private async Task PrintAsync()
+    {
+        await JS.InvokeVoidAsync("window.print");
+    }
+
+    private static bool IsIncoming(StockMovementType movementType) =>
+        movementType is StockMovementType.In or StockMovementType.ReturnIn;
+
+    private static Color MovementColor(StockMovementType movementType) => movementType switch
+    {
+        StockMovementType.In or StockMovementType.ReturnIn => Color.Success,
+        StockMovementType.Out => Color.Error,
+        StockMovementType.ReturnOut => Color.Warning,
+        _ => Color.Default,
+    };
+
+    private static string FormatMutation(StockMovementType movementType, int quantity) =>
+        IsIncoming(movementType) ? $"+{quantity}" : $"-{quantity}";
+
+    private static string FormatProductOption(ProductDto product) =>
+        string.IsNullOrWhiteSpace(product.SKU)
+            ? product.Name
+            : $"{product.Name} ({product.SKU})";
+
+    private static string FormatProductMeta(string? brand, string? sku)
+    {
+        var brandText = string.IsNullOrWhiteSpace(brand) ? null : brand;
+        var skuText = string.IsNullOrWhiteSpace(sku) ? "-" : sku;
+        return brandText is null ? $"SKU: {skuText}" : $"{brandText} • SKU: {skuText}";
+    }
+
+    private static string? ReferenceHref(string? reference)
+    {
+        if (string.IsNullOrWhiteSpace(reference)) return null;
+        if (reference.StartsWith("INV-", StringComparison.OrdinalIgnoreCase)) return "sales";
+        if (reference.StartsWith("PO-", StringComparison.OrdinalIgnoreCase)) return "purchase-orders";
+        if (reference.StartsWith("SRT-", StringComparison.OrdinalIgnoreCase)) return "sale-returns";
+        if (reference.StartsWith("PRT-", StringComparison.OrdinalIgnoreCase)) return "purchase-returns";
+        return null;
+    }
+}
